@@ -1,0 +1,187 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+@layer base {
+    body {
+        font-family: 'Roboto', sans-serif;
+    }
+}
+
+/* Google Calendar Style overrides */
+
+/* src/index.css */
+
+/* Estilo Google Calendar - Eventos */
+.rbc-event {
+    background-color: #039be5;
+    /* Azul Google */
+    border-radius: 4px;
+    /* Bordes redondeados */
+    border: none;
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
+    font-size: 12px;
+    padding: 2px 5px;
+}
+
+/* Quitar bordes duros de la grilla */
+.rbc-header {
+    border-bottom: none;
+    padding: 10px 0;
+    font-weight: 500;
+    color: #70757a;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+
+.rbc-time-view {
+    border: none;
+}
+
+.rbc-day-slot .rbc-time-slot {
+    border-top: 1px solid #f1f3f4;
+    /* Líneas muy suaves */
+}
+
+.rbc-today {
+    background-color: transparent;
+    /* Quitar el gris feo de 'hoy' */
+}
+
+/* Línea de tiempo actual */
+.rbc-current-time-indicator {
+    background-color: #ea4335;
+    /* Rojo Google */
+}
+
+/* Encabezados de recursos */
+.rbc-time-header-content {
+    border-left: 1px solid #f1f3f4;
+}
+
+
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 0.4s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    /* Curva suave estilo iOS */
+}
+
+/* Cuando vamos hacia ADELANTE (Next) */
+.direction-next::view-transition-old(root) {
+    animation-name: slide-out-left;
+}
+
+.direction-next::view-transition-new(root) {
+    animation-name: slide-in-right;
+}
+
+/* Cuando vamos hacia ATRÁS (Prev) */
+.direction-prev::view-transition-old(root) {
+    animation-name: slide-out-right;
+}
+
+.direction-prev::view-transition-new(root) {
+    animation-name: slide-in-left;
+}
+
+/* KEYFRAMES */
+@keyframes slide-out-left {
+    to {
+        transform: translateX(-20%);
+        opacity: 0;
+    }
+}
+
+@keyframes slide-in-right {
+    from {
+        transform: translateX(20%);
+        opacity: 0;
+    }
+}
+
+@keyframes slide-out-right {
+    to {
+        transform: translateX(20%);
+        opacity: 0;
+    }
+}
+
+@keyframes slide-in-left {
+    from {
+        transform: translateX(-20%);
+        opacity: 0;
+    }
+}
+
+/* Estilos de Google Calendar (Grid) */
+.bg-stripes-gray {
+    background-image: repeating-linear-gradient(45deg,
+            rgba(249, 250, 251, 1),
+            rgba(249, 250, 251, 1) 10px,
+            rgba(243, 244, 246, 1) 10px,
+            rgba(243, 244, 246, 1) 20px);
+}
+
+/* Scrollbars personalizadas sutiles */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(203, 213, 225, 0.5);
+    border-radius: 20px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.8);
+}
+
+/* Utilidades de animación para Modales y otros elementos */
+.animate-slide-in-right {
+    animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-left {
+    animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-up {
+    animation: slide-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slide-in-up {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.animate-fade-in {
+    animation: fade-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    opacity: 0;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
