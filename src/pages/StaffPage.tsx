@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../database/supabase';
 import { UserPlus, Trash2, Loader2, User, Briefcase, Check, Pencil } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -15,6 +16,7 @@ const COLORS: Record<string, string> = {
 };
 
 export default function StaffPage() {
+    const location = useLocation();
     const [staff, setStaff] = useState<Staff[]>([]);
     const [areas, setAreas] = useState<Area[]>([]);
     const [loading, setLoading] = useState(true);
@@ -31,6 +33,15 @@ export default function StaffPage() {
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
     useEffect(() => { loadData(); }, []);
+
+    // Auto-open modal when coming from quick create menu
+    useEffect(() => {
+        if (location.state?.openCreateForm) {
+            openCreateModal();
+            // Clear the state to prevent re-opening on refresh
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     const loadData = async () => {
         setLoading(true);

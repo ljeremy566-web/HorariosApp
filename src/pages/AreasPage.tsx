@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../database/supabase';
 import { Layers, Plus, Trash2, Loader2, Building2 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -14,6 +15,7 @@ const COLORS = [
 ];
 
 export default function AreasPage() {
+    const location = useLocation();
     const [areas, setAreas] = useState<Area[]>([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -22,6 +24,15 @@ export default function AreasPage() {
     const [saving, setSaving] = useState(false);
 
     useEffect(() => { loadAreas(); }, []);
+
+    // Auto-open modal when coming from quick create menu
+    useEffect(() => {
+        if (location.state?.openCreateForm) {
+            setShowModal(true);
+            // Clear the state to prevent re-opening on refresh
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     const loadAreas = async () => {
         setLoading(true);

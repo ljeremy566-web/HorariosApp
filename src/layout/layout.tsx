@@ -7,12 +7,23 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { TransitionLink } from '../components/TransitionLink';
+import { CreateModal } from '../components/createModal';
 
 export default function AppLayout() {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Close modal on ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setShowCreateModal(false);
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, []);
 
     useEffect(() => {
         authService.getSession().then((session) => {
@@ -63,6 +74,7 @@ export default function AppLayout() {
                 {/* Floating Action Button (FAB) - "Crear" */}
                 <div className="px-4 py-4">
                     <button
+                        onClick={() => setShowCreateModal(true)}
                         className={cn(
                             "flex items-center gap-3 bg-[#c2e7ff] text-[#001d35] hover:shadow-md transition-all rounded-2xl p-4",
                             sidebarOpen ? "pr-6 pl-4 h-14" : "w-14 h-14 justify-center"
@@ -165,12 +177,19 @@ export default function AppLayout() {
                 </header>
 
                 {/* Content Container (Papel Blanco con esquinas redondeadas) */}
-                <main className="flex-1 p-2 pr-4 pb-4 overflow-hidden">
-                    <div className="bg-white w-full h-full rounded-2xl shadow-sm border border-slate-200 overflow-y-auto p-6">
+                <main className={cn("flex-1 overflow-hidden", location.pathname.includes('/scheduler') ? "p-0" : "p-2 pr-4 pb-4")}>
+                    <div className={cn(
+                        "bg-white w-full h-full",
+                        !location.pathname.includes('/scheduler') && "rounded-2xl shadow-sm border border-slate-200 overflow-y-auto p-6",
+                        location.pathname.includes('/scheduler') && "overflow-hidden"
+                    )}>
                         <Outlet />
                     </div>
                 </main>
             </div>
+
+            {/* Create Modal */}
+            <CreateModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} />
         </div>
     );
 }

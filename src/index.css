@@ -185,3 +185,34 @@
         transform: translateY(0);
     }
 }
+
+/* Create Modal Animations - Google Style */
+.animate-backdrop-fade {
+    animation: backdrop-fade 0.15s ease-out forwards;
+}
+
+@keyframes backdrop-fade {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-modal-scale {
+    animation: modal-scale 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes modal-scale {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}

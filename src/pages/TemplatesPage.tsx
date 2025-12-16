@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../database/supabase';
 import { Layers, Plus, Trash2, Loader2, Clock, AlertCircle } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -15,6 +16,7 @@ const COLORS = [
 ];
 
 export default function TemplatesPage() {
+    const location = useLocation();
     const [templates, setTemplates] = useState<ShiftTemplate[]>([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -31,6 +33,15 @@ export default function TemplatesPage() {
     useEffect(() => {
         loadTemplates();
     }, []);
+
+    // Auto-open modal when coming from quick create menu
+    useEffect(() => {
+        if (location.state?.openCreateForm) {
+            setShowModal(true);
+            // Clear the state to prevent re-opening on refresh
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     const loadTemplates = async () => {
         setLoading(true);
