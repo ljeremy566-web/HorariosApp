@@ -23,12 +23,18 @@ import { es } from 'date-fns/locale';
 import type { Staff, Area, ShiftTemplate } from '../types';
 
 // --- TYPES ---
+// Estructura de un turno asignado: guarda el template Y el área en que se creó
+interface ShiftAssignment {
+    templateId: string;
+    areaId: string | null; // null = asignado en modo "Todos"
+}
+
 interface DaySchedule {
     date: string;
     dayName: string;
     dayNumber: string;
     status: 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE';
-    staffShifts: Record<string, string>;
+    staffShifts: Record<string, string | ShiftAssignment>; // Soporta ambos formatos para compatibilidad
 }
 
 // Colores para áreas - mapeo robusto que coincide con AreasPage
@@ -65,6 +71,15 @@ const COLORS: Record<string, { bg: string; text: string; accent: string }> = {
     green: { bg: 'bg-emerald-100/80', text: 'text-emerald-900', accent: 'bg-emerald-500' },
     red: { bg: 'bg-rose-100/80', text: 'text-rose-900', accent: 'bg-rose-500' },
     cyan: { bg: 'bg-cyan-100/80', text: 'text-cyan-900', accent: 'bg-cyan-500' },
+};
+
+// Helper para obtener datos del turno de forma segura (soporta formato antiguo y nuevo)
+const getShiftData = (shift: string | ShiftAssignment): ShiftAssignment => {
+    if (typeof shift === 'string') {
+        // Formato antiguo: solo templateId (migración de datos existentes)
+        return { templateId: shift, areaId: null };
+    }
+    return shift;
 };
 
 // --- MODAL DE CONFIRMACIÓN (Google Style) ---
@@ -165,6 +180,8 @@ function DraggableAssignedShift({
 
     const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 999 } : undefined;
     const areaColor = getAreaColor(staffArea?.color);
+    // Color del turno (template)
+    const templateColor = COLORS[template?.color] || COLORS.blue;
 
     return (
         <div
@@ -188,10 +205,13 @@ function DraggableAssignedShift({
                 ${isDragging ? 'opacity-30' : ''}
             `}
         >
-            <div className="font-semibold text-sm flex justify-between items-center gap-2">
+            {/* Punto de color del turno (template) */}
+            <div className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full ${templateColor.accent} shadow-sm`}></div>
+
+            <div className="font-semibold text-sm flex justify-between items-center gap-2 pr-4">
                 <span className="truncate">{staff.full_name}</span>
                 {template && (
-                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${areaColor.dot} text-white flex-shrink-0`}>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${templateColor.accent} text-white flex-shrink-0`}>
                         {template.code}
                     </span>
                 )}
@@ -209,22 +229,39 @@ function DraggableAssignedShift({
 }
 
 // --- COMPONENTE DROPPABLE (COLUMNA DE DÍA) - Google Calendar Style ---
-function DroppableColumn({ day, dayIdx, staffList, templates, areas, viewMode, onShiftClick, onRemoveShift, onDayAction }: {
+function DroppableColumn({ day, dayIdx, staffList, templates, areas, viewMode, selectedAreaId, onShiftClick, onRemoveShift, onDayAction }: {
     day: DaySchedule; dayIdx: number; staffList: Staff[]; templates: ShiftTemplate[]; areas: Area[];
     viewMode: 'edit' | 'preview';
+    selectedAreaId: string; // 'ALL' o el ID del área filtrada
     onShiftClick: (idx: number, sId: string) => void;
     onRemoveShift: (idx: number, sId: string) => void;
     onDayAction: (action: 'copy_prev' | 'clear' | 'toggle', idx: number) => void;
 }) {
     const { isOver, setNodeRef } = useDroppable({ id: `day-${day.date}`, data: { dayIdx, day } });
 
-    const visibleAssignments = Object.entries(day.staffShifts as Record<string, string>).map(([staffId, templateId]) => {
+    const visibleAssignments = Object.entries(day.staffShifts).map(([staffId, shiftValue]) => {
+        const shiftData = getShiftData(shiftValue);
         const staff = staffList.find((s: Staff) => s.id === staffId);
-        const template = templates.find((t: ShiftTemplate) => t.id === templateId);
+        const template = templates.find((t: ShiftTemplate) => t.id === shiftData.templateId);
         // Obtener el área del empleado para usar su color
         const staffArea = staff?.area_ids?.[0] ? areas.find(a => a.id === staff.area_ids![0]) : null;
-        return { staffId, staff, template, staffArea };
-    }).filter(a => a.staff);
+        return { staffId, staff, template, staffArea, shiftAreaId: shiftData.areaId };
+    }).filter(a => {
+        // Filtrar: solo mostrar si el empleado existe
+        if (!a.staff) return false;
+
+        // Si estamos en modo "Todos", mostrar todos los turnos
+        if (selectedAreaId === 'ALL') return true;
+
+        // Si el turno fue creado sin área específica (datos antiguos), 
+        // mostrarlo solo si el empleado pertenece al área filtrada
+        if (!a.shiftAreaId) {
+            return a.staff.area_ids?.includes(selectedAreaId) ?? false;
+        }
+
+        // Mostrar solo si el turno fue creado en el área seleccionada
+        return a.shiftAreaId === selectedAreaId;
+    });
 
     const isToday = isSameDay(new Date(day.date + 'T00:00:00'), new Date());
     const isClosed = day.status !== 'OPEN';
@@ -432,10 +469,15 @@ export default function SchedulerPage() {
         setSaving(true);
         const shiftsToSave = days.map(d => {
             if (selectedAreaId === 'ALL') return d.staffShifts;
-            const filteredShifts: Record<string, string> = {};
-            Object.entries(d.staffShifts).forEach(([staffId, tmplId]) => {
+            const filteredShifts: Record<string, string | ShiftAssignment> = {};
+            Object.entries(d.staffShifts).forEach(([staffId, shiftValue]) => {
+                const shiftData = getShiftData(shiftValue);
                 const staff = staffList.find(s => s.id === staffId);
-                if (staff?.area_ids?.includes(selectedAreaId)) filteredShifts[staffId] = tmplId;
+                // Solo incluir turnos que pertenezcan al área seleccionada
+                if (shiftData.areaId === selectedAreaId ||
+                    (!shiftData.areaId && staff?.area_ids?.includes(selectedAreaId))) {
+                    filteredShifts[staffId] = shiftValue;
+                }
             });
             return filteredShifts;
         });
@@ -467,18 +509,22 @@ export default function SchedulerPage() {
 
         // --- CASO 1: RE-AGENDAR (Drag desde el calendario) ---
         if (active.data.current?.type === 'assigned-shift') {
-            const { staffId, sourceDayIdx, templateId } = active.data.current;
+            const { staffId, sourceDayIdx, staff: draggedStaff } = active.data.current;
 
             // Si el destino es el mismo día, no hacemos nada
             if (sourceDayIdx === targetDayIdx) return;
 
             const newDays = [...days];
 
+            // Obtener el turno existente para preservar su areaId
+            const existingShift = newDays[sourceDayIdx].staffShifts[staffId];
+
             // Mover el turno: Borrar del origen -> Agregar al destino
             delete newDays[sourceDayIdx].staffShifts[staffId];
-            newDays[targetDayIdx].staffShifts[staffId] = templateId;
+            newDays[targetDayIdx].staffShifts[staffId] = existingShift;
 
             setDays(newDays);
+            toast.success(`Turno de ${draggedStaff?.full_name || 'empleado'} movido al día ${targetDay.dayNumber}`);
             return;
         }
 
@@ -489,27 +535,50 @@ export default function SchedulerPage() {
         if (templates.length === 0) return toast.error('Crea plantillas primero');
 
         const newDays = [...days];
-        const templateToUse = activeTemplateId || templates[0].id; // Usar template seleccionado o el primero
+        const templateToUse = activeTemplateId || templates[0].id;
 
-        newDays[targetDayIdx].staffShifts[staff.id] = templateToUse;
+        // IMPORTANTE: Guardar el turno con el área actualmente seleccionada
+        // Si estamos en "Todos", usar el área principal del empleado
+        const areaToSave = selectedAreaId !== 'ALL' ? selectedAreaId : (staff.area_ids?.[0] || null);
+
+        newDays[targetDayIdx].staffShifts[staff.id] = {
+            templateId: templateToUse,
+            areaId: areaToSave
+        };
         setDays(newDays);
+
+        // Notificación con nombre del template usado
+        const templateUsed = templates.find(t => t.id === templateToUse);
+        toast.success(`${staff.full_name} asignado al día ${targetDay.dayNumber} (${templateUsed?.name || 'turno'})`);
     };
 
     const onShiftClick = (i: number, sId: string) => {
         const newDays = [...days];
+        const currentShift = getShiftData(newDays[i].staffShifts[sId]);
+        const staff = staffList.find(s => s.id === sId);
 
         if (activeTemplateId) {
-            if (newDays[i].staffShifts[sId] !== activeTemplateId) {
-                newDays[i].staffShifts[sId] = activeTemplateId;
+            if (currentShift.templateId !== activeTemplateId) {
+                // Preservar areaId, solo cambiar templateId
+                newDays[i].staffShifts[sId] = {
+                    templateId: activeTemplateId,
+                    areaId: currentShift.areaId
+                };
                 setDays(newDays);
+                const newTemplate = templates.find(t => t.id === activeTemplateId);
+                toast.success(`Turno cambiado a ${newTemplate?.name || 'nuevo turno'}`);
             }
         } else {
             if (templates.length === 0) return;
-            const currentTmplId = newDays[i].staffShifts[sId];
-            const currentIdx = templates.findIndex(t => t.id === currentTmplId);
+            const currentIdx = templates.findIndex(t => t.id === currentShift.templateId);
             const nextIdx = (currentIdx + 1) % templates.length;
-            newDays[i].staffShifts[sId] = templates[nextIdx].id;
+            // Preservar areaId, rotar templateId
+            newDays[i].staffShifts[sId] = {
+                templateId: templates[nextIdx].id,
+                areaId: currentShift.areaId
+            };
             setDays(newDays);
+            toast.success(`${staff?.full_name || 'Empleado'} → ${templates[nextIdx].name}`);
         }
     };
 
@@ -547,16 +616,19 @@ export default function SchedulerPage() {
 
     const handleSave = async () => {
         setSaving(true);
+        const toastId = toast.loading('Guardando cambios...');
         try {
             const payload = days.map(d => ({ date: d.date, status: d.status, staff_shifts: d.staffShifts }));
             const { error } = await supabase.from('availability_schedule').upsert(payload, { onConflict: 'date' });
 
             if (error) throw error;
 
-            toast.success('Cambios guardados correctamente');
+            // Contar total de turnos asignados
+            const totalShifts = days.reduce((acc, d) => acc + Object.keys(d.staffShifts).length, 0);
+            toast.success(`¡Guardado! ${totalShifts} turnos en ${days.length} días`, { id: toastId });
         } catch (error) {
             console.error('Error guardando:', error);
-            toast.error('Ocurrió un error al guardar');
+            toast.error('Error al guardar los cambios', { id: toastId });
         } finally {
             setSaving(false);
         }
@@ -569,7 +641,13 @@ export default function SchedulerPage() {
         const newDays = days.map(d => {
             if (d.status !== 'OPEN') return d;
             const shifts = { ...d.staffShifts };
-            filteredStaff.forEach(s => { if (!shifts[s.id]) shifts[s.id] = templateToUse; });
+            filteredStaff.forEach(s => {
+                if (!shifts[s.id]) {
+                    // Usar el área filtrada actual, o el área principal del empleado si estamos en "Todos"
+                    const areaToSave = selectedAreaId !== 'ALL' ? selectedAreaId : (s.area_ids?.[0] || null);
+                    shifts[s.id] = { templateId: templateToUse, areaId: areaToSave };
+                }
+            });
             return { ...d, staffShifts: shifts };
         });
         setDays(newDays);
@@ -958,6 +1036,7 @@ export default function SchedulerPage() {
                                         templates={templates}
                                         areas={areas}
                                         viewMode={viewMode}
+                                        selectedAreaId={selectedAreaId}
                                         onShiftClick={onShiftClick}
                                         onRemoveShift={(i, sId) => {
                                             const newDays = [...days];
