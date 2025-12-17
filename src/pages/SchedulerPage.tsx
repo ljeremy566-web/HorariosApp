@@ -1,6 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '../database/supabase';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
     DndContext,
     type DragEndEvent,
@@ -21,6 +19,8 @@ import toast from 'react-hot-toast';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameDay, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { Staff, Area, ShiftTemplate } from '../types';
+import { staffService, areaService, templateService, patternService, availabilityService } from '../Services';
+import { AREA_COLORS, SHIFT_COLORS, getAreaColor } from '../constants/colors';
 
 // --- TYPES ---
 // Estructura de un turno asignado: guarda el template Y el área en que se creó
@@ -36,42 +36,6 @@ interface DaySchedule {
     status: 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE';
     staffShifts: Record<string, string | ShiftAssignment>; // Soporta ambos formatos para compatibilidad
 }
-
-// Colores para áreas - mapeo robusto que coincide con AreasPage
-const AREA_COLORS: Record<string, { bg: string; text: string; dot: string; border: string }> = {
-    blue: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500', border: 'border-blue-500' },
-    green: { bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-500', border: 'border-green-500' },
-    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', border: 'border-emerald-500' },
-    purple: { bg: 'bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-500', border: 'border-purple-500' },
-    violet: { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', border: 'border-violet-500' },
-    orange: { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500', border: 'border-orange-500' },
-    red: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', border: 'border-red-500' },
-    rose: { bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-500', border: 'border-rose-500' },
-    cyan: { bg: 'bg-cyan-50', text: 'text-cyan-700', dot: 'bg-cyan-500', border: 'border-cyan-500' },
-    teal: { bg: 'bg-teal-50', text: 'text-teal-700', dot: 'bg-teal-500', border: 'border-teal-500' },
-    amber: { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500', border: 'border-amber-500' },
-    indigo: { bg: 'bg-indigo-50', text: 'text-indigo-700', dot: 'bg-indigo-500', border: 'border-indigo-500' },
-    pink: { bg: 'bg-pink-50', text: 'text-pink-700', dot: 'bg-pink-500', border: 'border-pink-500' },
-};
-
-// Color por defecto para áreas sin color definido
-const DEFAULT_AREA_COLOR = { bg: 'bg-slate-100', text: 'text-slate-600', dot: 'bg-slate-400', border: 'border-slate-400' };
-
-// Helper para obtener color de área de forma segura
-const getAreaColor = (colorName: string | undefined) => {
-    if (!colorName) return DEFAULT_AREA_COLOR;
-    return AREA_COLORS[colorName] || DEFAULT_AREA_COLOR;
-};
-
-// Colores visuales para los turnos (Google Calendar style)
-const COLORS: Record<string, { bg: string; text: string; accent: string }> = {
-    blue: { bg: 'bg-blue-100/80', text: 'text-blue-900', accent: 'bg-blue-500' },
-    orange: { bg: 'bg-orange-100/80', text: 'text-orange-900', accent: 'bg-orange-500' },
-    purple: { bg: 'bg-violet-100/80', text: 'text-violet-900', accent: 'bg-violet-500' },
-    green: { bg: 'bg-emerald-100/80', text: 'text-emerald-900', accent: 'bg-emerald-500' },
-    red: { bg: 'bg-rose-100/80', text: 'text-rose-900', accent: 'bg-rose-500' },
-    cyan: { bg: 'bg-cyan-100/80', text: 'text-cyan-900', accent: 'bg-cyan-500' },
-};
 
 // Helper para obtener datos del turno de forma segura (soporta formato antiguo y nuevo)
 const getShiftData = (shift: string | ShiftAssignment): ShiftAssignment => {
@@ -107,10 +71,14 @@ function ConfirmModal({
 }
 
 // --- COMPONENTE DRAGGABLE (EMPLEADO) - Sidebar Style ---
-function DraggableStaff({ staff, areas, shiftCount }: { staff: Staff; areas: Area[]; shiftCount?: number }) {
-    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `staff-${staff.id}`, data: { staff } });
+function DraggableStaff({ staff, areas, shiftCount, contextAreaId }: { staff: Staff; areas: Area[]; shiftCount?: number; contextAreaId?: string }) {
+    // ID único: si hay contextAreaId (para multi-área), lo incluimos para evitar duplicados
+    const dragId = contextAreaId ? `staff-${staff.id}-${contextAreaId}` : `staff-${staff.id}`;
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: dragId, data: { staff } });
     const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
-    const staffArea = staff.area_ids?.[0] ? areas.find(a => a.id === staff.area_ids![0]) : null;
+    // Usar el área de contexto si se proporciona, o el área principal
+    const displayAreaId = contextAreaId || staff.area_ids?.[0];
+    const staffArea = displayAreaId ? areas.find(a => a.id === displayAreaId) : null;
     const areaColor = getAreaColor(staffArea?.color);
 
     // Indicador visual si no tiene turnos
@@ -181,7 +149,7 @@ function DraggableAssignedShift({
     const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 999 } : undefined;
     const areaColor = getAreaColor(staffArea?.color);
     // Color del turno (template)
-    const templateColor = COLORS[template?.color] || COLORS.blue;
+    const templateColor = SHIFT_COLORS[template?.color] || SHIFT_COLORS.blue;
 
     return (
         <div
@@ -247,8 +215,8 @@ function DroppableColumn({ day, dayIdx, staffList, templates, areas, viewMode, s
         const staffArea = staff?.area_ids?.[0] ? areas.find(a => a.id === staff.area_ids![0]) : null;
         return { staffId, staff, template, staffArea, shiftAreaId: shiftData.areaId };
     }).filter(a => {
-        // Filtrar: solo mostrar si el empleado existe
-        if (!a.staff) return false;
+        // Filtrar: solo mostrar si el empleado Y el template existen
+        if (!a.staff || !a.template) return false;
 
         // Si estamos en modo "Todos", mostrar todos los turnos
         if (selectedAreaId === 'ALL') return true;
@@ -380,6 +348,9 @@ export default function SchedulerPage() {
     const [days, setDays] = useState<DaySchedule[]>([]);
     const [activeDragData, setActiveDragData] = useState<any>(null);
 
+    // Ref para el contenedor del grid y scroll automático al día actual
+    const gridContainerRef = useRef<HTMLDivElement>(null);
+
     // Calcular conteo de turnos por empleado para el mes visible
     // Esto se recalcula cuando cambian los días o la lista de staff
     const staffShiftCounts = useMemo(() => days.reduce((acc, day) => {
@@ -413,28 +384,23 @@ export default function SchedulerPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [staffRes, areasRes, tmplRes] = await Promise.all([
-                supabase.from('staff').select('id, full_name, role, area_ids').eq('is_active', true).order('full_name'),
-                supabase.from('areas').select('*').order('name'),
-                supabase.from('shift_templates').select('*').order('created_at')
+            // Usar servicios en lugar de supabase directo
+            const [staffData, areasData, tmplData] = await Promise.all([
+                staffService.getAll(),
+                areaService.getAll(),
+                templateService.getAll()
             ]);
 
-            setStaffList(staffRes.data || []);
-            setAreas(areasRes.data || []);
-            setTemplates(tmplRes.data || []);
-
-            setTemplates(tmplRes.data || []);
+            setStaffList(staffData);
+            setAreas(areasData);
+            setTemplates(tmplData);
 
             const startStr = format(startOfMonth(currentDate), 'yyyy-MM-dd');
             const endStr = format(endOfMonth(currentDate), 'yyyy-MM-dd');
 
-            const { data: schedule } = await supabase
-                .from('availability_schedule')
-                .select('*')
-                .gte('date', startStr)
-                .lte('date', endStr);
+            const schedule = await availabilityService.getByDateRange(startStr, endStr);
 
-            generateGrid(schedule || [], currentDate);
+            generateGrid(schedule, currentDate);
         } catch (e) { toast.error('Error cargando datos'); } finally { setLoading(false); }
     };
 
@@ -459,6 +425,24 @@ export default function SchedulerPage() {
         setDays(newDays);
     };
 
+    // Cargar datos cuando cambia el mes o estado de domingos
+    useEffect(() => {
+        loadData();
+    }, [currentDate, sundaysBlocked]);
+
+    // Scroll automático al día actual después de cargar
+    useEffect(() => {
+        if (!loading && days.length > 0 && gridContainerRef.current) {
+            const today = format(new Date(), 'yyyy-MM-dd');
+            const todayElement = gridContainerRef.current.querySelector(`[data-date="${today}"]`);
+            if (todayElement) {
+                setTimeout(() => {
+                    todayElement.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+                }, 100);
+            }
+        }
+    }, [loading, days.length]);
+
     const navigateDate = (direction: 'prev' | 'next') => {
         setCurrentDate(direction === 'next' ? addMonths(currentDate, 1) : subMonths(currentDate, 1));
     };
@@ -473,7 +457,6 @@ export default function SchedulerPage() {
             Object.entries(d.staffShifts).forEach(([staffId, shiftValue]) => {
                 const shiftData = getShiftData(shiftValue);
                 const staff = staffList.find(s => s.id === staffId);
-                // Solo incluir turnos que pertenezcan al área seleccionada
                 if (shiftData.areaId === selectedAreaId ||
                     (!shiftData.areaId && staff?.area_ids?.includes(selectedAreaId))) {
                     filteredShifts[staffId] = shiftValue;
@@ -481,12 +464,16 @@ export default function SchedulerPage() {
             });
             return filteredShifts;
         });
-        await supabase.from('saved_patterns').insert({
-            name: patternName,
-            area: selectedAreaId === 'ALL' ? 'General' : areas.find(a => a.id === selectedAreaId)?.name,
-            shift_data: shiftsToSave
-        });
-        toast.success('Plantilla guardada');
+        try {
+            await patternService.create({
+                name: patternName,
+                area: selectedAreaId === 'ALL' ? 'General' : areas.find(a => a.id === selectedAreaId)?.name || 'General',
+                shift_data: shiftsToSave
+            });
+            toast.success('Plantilla guardada');
+        } catch (e) {
+            toast.error('Error guardando plantilla');
+        }
         setSaving(false);
     };
 
@@ -589,7 +576,13 @@ export default function SchedulerPage() {
     const handleDayAction = (action: string, idx: number) => {
         const newDays = [...days];
         if (action === 'toggle') {
-            newDays[idx].status = newDays[idx].status === 'OPEN' ? 'CLOSED' : 'OPEN';
+            // Manejar los 3 estados: OPEN, CLOSED, DISABLED_BY_RULE
+            if (newDays[idx].status === 'OPEN') {
+                newDays[idx].status = 'CLOSED';
+            } else {
+                // Tanto CLOSED como DISABLED_BY_RULE se abren
+                newDays[idx].status = 'OPEN';
+            }
             setDays(newDays);
         }
         if (action === 'clear') {
@@ -618,12 +611,9 @@ export default function SchedulerPage() {
         setSaving(true);
         const toastId = toast.loading('Guardando cambios...');
         try {
-            const payload = days.map(d => ({ date: d.date, status: d.status, staff_shifts: d.staffShifts }));
-            const { error } = await supabase.from('availability_schedule').upsert(payload, { onConflict: 'date' });
+            const payload = days.map(d => ({ date: d.date, status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE', staff_shifts: d.staffShifts }));
+            await availabilityService.upsertSchedule(payload);
 
-            if (error) throw error;
-
-            // Contar total de turnos asignados
             const totalShifts = days.reduce((acc, d) => acc + Object.keys(d.staffShifts).length, 0);
             toast.success(`¡Guardado! ${totalShifts} turnos en ${days.length} días`, { id: toastId });
         } catch (error) {
@@ -660,8 +650,9 @@ export default function SchedulerPage() {
         const [loadingPat, setLoadingPat] = useState(true);
 
         useEffect(() => {
-            supabase.from('saved_patterns').select('*').order('created_at', { ascending: false })
-                .then(({ data }) => { setPatterns(data || []); setLoadingPat(false); });
+            patternService.getAll()
+                .then((data) => { setPatterns(data); setLoadingPat(false); })
+                .catch(() => setLoadingPat(false));
         }, []);
 
         const apply = (p: any) => {
@@ -685,12 +676,15 @@ export default function SchedulerPage() {
                 title: 'Eliminar plantilla',
                 message: `¿Eliminar "${name}" permanentemente ? `,
                 variant: 'danger',
-                onConfirm: () => {
-                    supabase.from('saved_patterns').delete().eq('id', id).then(() => {
+                onConfirm: async () => {
+                    try {
+                        await patternService.delete(id);
                         setPatterns(patterns.filter(p => p.id !== id));
                         setConfirmDialog(prev => ({ ...prev, isOpen: false }));
                         toast.success('Plantilla eliminada');
-                    });
+                    } catch (e) {
+                        toast.error('Error eliminando plantilla');
+                    }
                 }
             });
         };
@@ -899,7 +893,7 @@ export default function SchedulerPage() {
                         <div className="w-px h-5 bg-slate-200"></div>
 
                         {templates.map(t => {
-                            const c = COLORS[t.color] || COLORS.blue;
+                            const c = SHIFT_COLORS[t.color] || SHIFT_COLORS.blue;
                             const isActive = activeTemplateId === t.id;
                             return (
                                 <button
@@ -963,6 +957,7 @@ export default function SchedulerPage() {
                                     // MODO AGRUPADO: mostrar por áreas cuando está en "Todos"
                                     <div className="py-2">
                                         {areas.map(area => {
+                                            // Mostrar empleados que pertenecen a esta área (cualquiera de sus area_ids)
                                             const areaStaff = staffList.filter(s => s.area_ids?.includes(area.id));
                                             if (areaStaff.length === 0) return null;
                                             const color = getAreaColor(area.color);
@@ -980,7 +975,7 @@ export default function SchedulerPage() {
                                                     {/* Lista de empleados del área */}
                                                     <div className="py-1">
                                                         {areaStaff.map(staff => (
-                                                            <DraggableStaff key={staff.id} staff={staff} areas={areas} />
+                                                            <DraggableStaff key={`${staff.id}-${area.id}`} staff={staff} areas={areas} contextAreaId={area.id} />
                                                         ))}
                                                     </div>
                                                 </div>
@@ -1025,28 +1020,35 @@ export default function SchedulerPage() {
                     )}
 
                     {/* Grid de Calendario */}
-                    <div className="flex-1 overflow-auto bg-white">
+                    <div ref={gridContainerRef} className="flex-1 overflow-auto bg-white">
                         <div className="flex h-full min-w-max divide-x divide-slate-100">
-                            {days.map((day, idx) => (
-                                <div key={day.date} className="flex-1 min-w-[180px] h-full group">
-                                    <DroppableColumn
-                                        day={day}
-                                        dayIdx={idx}
-                                        staffList={filteredStaff}
-                                        templates={templates}
-                                        areas={areas}
-                                        viewMode={viewMode}
-                                        selectedAreaId={selectedAreaId}
-                                        onShiftClick={onShiftClick}
-                                        onRemoveShift={(i, sId) => {
-                                            const newDays = [...days];
-                                            delete newDays[i].staffShifts[sId];
-                                            setDays(newDays);
-                                        }}
-                                        onDayAction={handleDayAction}
-                                    />
-                                </div>
-                            ))}
+                            {days.map((day, idx) => {
+                                const isToday = day.date === format(new Date(), 'yyyy-MM-dd');
+                                return (
+                                    <div
+                                        key={day.date}
+                                        data-date={day.date}
+                                        className={`flex-1 min-w-[180px] h-full group ${isToday ? 'ring-2 ring-blue-400 ring-inset' : ''}`}
+                                    >
+                                        <DroppableColumn
+                                            day={day}
+                                            dayIdx={idx}
+                                            staffList={filteredStaff}
+                                            templates={templates}
+                                            areas={areas}
+                                            viewMode={viewMode}
+                                            selectedAreaId={selectedAreaId}
+                                            onShiftClick={onShiftClick}
+                                            onRemoveShift={(i, sId) => {
+                                                const newDays = [...days];
+                                                delete newDays[i].staffShifts[sId];
+                                                setDays(newDays);
+                                            }}
+                                            onDayAction={handleDayAction}
+                                        />
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>

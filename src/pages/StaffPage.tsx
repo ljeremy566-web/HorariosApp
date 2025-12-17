@@ -1,19 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { supabase } from '../database/supabase';
 import { UserPlus, Trash2, Loader2, User, Briefcase, Check, Pencil } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Modal } from '../components/Modal';
 import type { Staff, Area } from '../types';
-
-// Mapeo de colores para los badges de áreas
-const COLORS: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
-    orange: 'bg-orange-50 text-orange-700 border-orange-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-};
+import { staffService, areaService } from '../Services';
+import { getAreaColor } from '../constants/colors';
 
 export default function StaffPage() {
     const location = useLocation();
@@ -46,16 +38,14 @@ export default function StaffPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            // Cargamos Staff y Áreas en paralelo
-            const [staffRes, areaRes] = await Promise.all([
-                supabase.from('staff').select('*').eq('is_active', true).order('created_at', { ascending: false }),
-                supabase.from('areas').select('*').order('name')
+            // Cargamos Staff y Áreas en paralelo usando servicios
+            const [staffData, areasData] = await Promise.all([
+                staffService.getAll(),
+                areaService.getAll()
             ]);
 
-            if (staffRes.error) throw staffRes.error;
-            setStaff(staffRes.data || []);
-
-            if (areaRes.data) setAreas(areaRes.data);
+            setStaff(staffData);
+            setAreas(areasData);
         } catch (error) {
             console.error(error);
             toast.error('Error cargando datos');
@@ -68,21 +58,20 @@ export default function StaffPage() {
         if (!formData.full_name.trim()) return toast.error('El nombre es obligatorio');
 
         setSaving(true);
-        const { error } = await supabase.from('staff').insert({
-            full_name: formData.full_name.trim(),
-            role: formData.role.trim() || null,
-            area_ids: formData.area_ids, // Guardamos el array de áreas seleccionadas
-            is_active: true
-        });
-
-        if (error) {
-            console.error(error);
-            toast.error('Error al guardar empleado');
-        } else {
+        try {
+            await staffService.create({
+                full_name: formData.full_name.trim(),
+                role: formData.role.trim() || undefined,
+                area_ids: formData.area_ids,
+                is_active: true
+            });
             toast.success('Empleado añadido correctamente');
-            setFormData({ full_name: '', role: '', area_ids: [] }); // Resetear form
+            setFormData({ full_name: '', role: '', area_ids: [] });
             setShowModal(false);
             loadData();
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al guardar empleado');
         }
         setSaving(false);
     };
@@ -104,19 +93,18 @@ export default function StaffPage() {
         if (!editingId) return;
 
         setSaving(true);
-        const { error } = await supabase.from('staff').update({
-            full_name: formData.full_name.trim(),
-            role: formData.role.trim() || null,
-            area_ids: formData.area_ids
-        }).eq('id', editingId);
-
-        if (error) {
-            console.error(error);
-            toast.error('Error al actualizar empleado');
-        } else {
+        try {
+            await staffService.update(editingId, {
+                full_name: formData.full_name.trim(),
+                role: formData.role.trim() || undefined,
+                area_ids: formData.area_ids
+            });
             toast.success('Empleado actualizado correctamente');
             closeModal();
             loadData();
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al actualizar empleado');
         }
         setSaving(false);
     };
@@ -149,16 +137,16 @@ export default function StaffPage() {
         });
     };
 
-    const handleDeleteClick = (id: string) => {
+    const handleDeleteClick = async (id: string) => {
         if (deleteConfirmId === id) {
-            // Segunda confirmación: Ejecutar borrado lógico
-            supabase.from('staff').update({ is_active: false }).eq('id', id).then(({ error }) => {
-                if (error) toast.error('Error al eliminar');
-                else {
-                    toast.success('Empleado desactivado');
-                    loadData();
-                }
-            });
+            // Segunda confirmación: Ejecutar borrado lógico usando servicio
+            try {
+                await staffService.delete(id);
+                toast.success('Empleado desactivado');
+                loadData();
+            } catch (error) {
+                toast.error('Error al eliminar');
+            }
             setDeleteConfirmId(null);
         } else {
             // Primera vez: Mostrar estado de confirmación
@@ -174,9 +162,9 @@ export default function StaffPage() {
         return ids.map(id => {
             const area = areas.find(a => a.id === id);
             if (!area) return null;
-            const style = COLORS[area.color] || COLORS.blue;
+            const areaColor = getAreaColor(area.color);
             return (
-                <span key={id} className={`text-[10px] px-2 py-0.5 rounded border ${style} font-medium`}>
+                <span key={id} className={`text-[10px] px-2 py-0.5 rounded border ${areaColor.light} font-medium`}>
                     {area.name}
                 </span>
             );
@@ -296,7 +284,7 @@ export default function StaffPage() {
                                 <div className="flex flex-wrap gap-2">
                                     {areas.map(a => {
                                         const isSelected = formData.area_ids.includes(a.id);
-                                        const colorClass = COLORS[a.color] || COLORS.blue;
+                                        const areaColor = getAreaColor(a.color);
 
                                         return (
                                             <button
@@ -305,7 +293,7 @@ export default function StaffPage() {
                                                 className={`
                                                     text-xs px-3 py-2 rounded-lg border transition-all flex items-center gap-1.5 font-medium
                                                     ${isSelected
-                                                        ? `${colorClass} ring-1 ring-offset-1 ring-slate-200 shadow-sm`
+                                                        ? `${areaColor.light} ring-1 ring-offset-1 ring-slate-200 shadow-sm`
                                                         : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                                                     }
                                                 `}

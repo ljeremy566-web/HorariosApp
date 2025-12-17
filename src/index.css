@@ -216,3 +216,38 @@
         transform: scale(1) translateY(0);
     }
 }
+
+
+#nigger {
+    animation: nigger 1s ease-in-out forwards;
+}
+
+@keyframes nigger {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 100;
+
+    }
+}
+
+#typing {
+    display: flex;
+
+
+    animation: typing 2s ease-in-out forwards;
+
+}
+
+@keyframes typing {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 100%;
+
+    }
+}
