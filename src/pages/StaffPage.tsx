@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { UserPlus, Trash2, Loader2, User, Briefcase, Check, Pencil, Search } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, User, Briefcase, Check, Pencil, Search, X } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Modal } from '../components/Modal';
 import type { Staff, Area } from '../types';
@@ -27,8 +27,20 @@ export default function StaffPage() {
     // Estado para búsqueda/filtrado local
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Estado para búsqueda de áreas en el modal
+    const [areaQuery, setAreaQuery] = useState('');
+
     // Ref para limpiar el timeout de confirmación de borrado
     const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Configuración: ¿A partir de cuántas áreas activamos el modo avanzado?
+    const COMPLEX_SELECTOR_THRESHOLD = 10;
+    const useSimpleSelector = areas.length <= COMPLEX_SELECTOR_THRESHOLD;
+
+    // Áreas filtradas por búsqueda (para modo complejo)
+    const filteredAreas = areas.filter(a =>
+        a.name.toLowerCase().includes(areaQuery.toLowerCase())
+    );
 
     // Helper para obtener iniciales correctamente (primera letra de cada palabra)
     const getInitials = (name: string) => {
@@ -374,22 +386,27 @@ export default function StaffPage() {
                         </datalist>
                     </div>
 
-                    {/* Selector de Áreas (Chips) */}
+                    {/* --- SELECTOR DE ÁREAS INTELIGENTE --- */}
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Asignar Áreas de Trabajo</label>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">
+                            Asignar Áreas de Trabajo
+                        </label>
+
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 transition-all">
+
                             {areas.length === 0 ? (
                                 <p className="text-xs text-slate-400 text-center py-2">No hay áreas creadas. Ve a "Áreas" primero.</p>
-                            ) : (
+                            ) : useSimpleSelector ? (
+                                /* CASO 1: POCAS ÁREAS (Modo Simple) */
                                 <div className="flex flex-wrap gap-2">
                                     {areas.map(a => {
                                         const isSelected = formData.area_ids.includes(a.id);
                                         const areaColor = getAreaColor(a.color);
-
                                         return (
                                             <button
                                                 key={a.id}
                                                 onClick={() => toggleAreaSelection(a.id)}
+                                                type="button"
                                                 className={`
                                                     text-xs px-3 py-2 rounded-lg border transition-all flex items-center gap-1.5 font-medium
                                                     ${isSelected
@@ -397,7 +414,6 @@ export default function StaffPage() {
                                                         : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                                                     }
                                                 `}
-                                                type="button"
                                             >
                                                 {isSelected && <Check size={12} strokeWidth={3} />}
                                                 {a.name}
@@ -405,10 +421,79 @@ export default function StaffPage() {
                                         );
                                     })}
                                 </div>
+                            ) : (
+                                /* CASO 2: MUCHAS ÁREAS (Modo Robusto - Con Buscador y Scroll) */
+                                <>
+                                    {/* A. Buscador */}
+                                    <div className="relative mb-3">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <Search className="h-4 w-4 text-slate-400" />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            placeholder={`Buscar entre ${areas.length} áreas...`}
+                                            className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                            value={areaQuery}
+                                            onChange={(e) => setAreaQuery(e.target.value)}
+                                        />
+                                    </div>
+
+                                    {/* B. Chips de lo que ya seleccionaste */}
+                                    {formData.area_ids.length > 0 && (
+                                        <div className="mb-3 pb-2 border-b border-slate-200/60">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1.5">Seleccionadas</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {areas.filter(a => formData.area_ids.includes(a.id)).map(a => (
+                                                    <button
+                                                        key={a.id}
+                                                        onClick={() => toggleAreaSelection(a.id)}
+                                                        type="button"
+                                                        className="text-xs px-2 py-1 rounded-md border bg-blue-100 text-blue-700 border-blue-200 flex items-center gap-1 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                                                        title="Clic para quitar"
+                                                    >
+                                                        <Check size={10} strokeWidth={3} />
+                                                        {a.name}
+                                                        <X size={10} className="ml-1 opacity-50" />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* C. Lista Scrollable de Disponibles */}
+                                    <div className="max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1.5">
+                                            {areaQuery ? 'Resultados' : 'Disponibles'}
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {filteredAreas
+                                                .filter(a => !formData.area_ids.includes(a.id))
+                                                .map(a => (
+                                                    <button
+                                                        key={a.id}
+                                                        onClick={() => toggleAreaSelection(a.id)}
+                                                        type="button"
+                                                        className="text-xs px-3 py-1.5 rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                                                    >
+                                                        {a.name}
+                                                    </button>
+                                                ))}
+                                            {filteredAreas.filter(a => !formData.area_ids.includes(a.id)).length === 0 && (
+                                                <p className="text-xs text-slate-400 italic w-full text-center py-2">No se encontraron áreas</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
                             )}
-                            <p className="text-[10px] text-slate-400 mt-2 text-center">
-                                Selecciona todas las áreas donde este empleado puede rotar.
-                            </p>
+
+                            {/* Mensaje de ayuda dinámico */}
+                            {areas.length > 0 && (
+                                <p className="text-[10px] text-slate-400 mt-2 text-center">
+                                    {useSimpleSelector
+                                        ? "Selecciona las áreas de rotación."
+                                        : "Usa el buscador para filtrar la lista."}
+                                </p>
+                            )}
                         </div>
                     </div>
 

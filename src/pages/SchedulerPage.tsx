@@ -13,10 +13,11 @@ import {
 import {
     Lock, Unlock, Save, Loader2, GripVertical, Clock,
     User, Copy, Trash2, ChevronLeft, ChevronRight,
-    BookmarkPlus, DownloadCloud, X, Download, Check, Palette, Wand2, Calendar
+    BookmarkPlus, DownloadCloud, X, Download, Check, Palette, Wand2, Calendar,
+    Shuffle, AlignJustify, Repeat, Sparkles, CalendarDays, CheckSquare, Square
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameDay, addDays } from 'date-fns';
+import { format, addMonths, subMonths, isSameDay, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { Staff, Area, ShiftTemplate } from '../types';
 import { staffService, areaService, templateService, patternService, availabilityService } from '../Services';
@@ -337,7 +338,12 @@ export default function SchedulerPage() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedAreaId, setSelectedAreaId] = useState<string>('ALL');
     const [showPatternModal, setShowPatternModal] = useState(false);
+    const [showGenerator, setShowGenerator] = useState(false);
     const [sundaysBlocked, setSundaysBlocked] = useState(true);
+
+    // Estados para vista 15/30 días y cambios sin guardar
+    const [daysToShow, setDaysToShow] = useState<15 | 30>(30);  // Por defecto mes completo
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
     // Estado del "Pincel" (NULL = modo manual/rotar)
     const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
@@ -381,10 +387,9 @@ export default function SchedulerPage() {
         }));
     };
 
-    const loadData = async () => {
+    const loadData = async (daysToLoad: number = daysToShow) => {
         setLoading(true);
         try {
-            // Usar servicios en lugar de supabase directo
             const [staffData, areasData, tmplData] = await Promise.all([
                 staffService.getAll(),
                 areaService.getAll(),
@@ -395,40 +400,44 @@ export default function SchedulerPage() {
             setAreas(areasData);
             setTemplates(tmplData);
 
-            const startStr = format(startOfMonth(currentDate), 'yyyy-MM-dd');
-            const endStr = format(endOfMonth(currentDate), 'yyyy-MM-dd');
+            // Calcular rango dinámico basado en daysToLoad
+            const today = new Date();
+            const startStr = format(today, 'yyyy-MM-dd');
+            const endDate = new Date(today);
+            endDate.setDate(today.getDate() + daysToLoad - 1);
+            const endStr = format(endDate, 'yyyy-MM-dd');
 
             const schedule = await availabilityService.getByDateRange(startStr, endStr);
 
-            generateGrid(schedule, currentDate);
+            generateGrid(schedule, today, daysToLoad);
         } catch (e) { toast.error('Error cargando datos'); } finally { setLoading(false); }
     };
 
-    const generateGrid = (dbData: any[], dateInMonth: Date) => {
-        const start = startOfMonth(dateInMonth);
-        const end = endOfMonth(dateInMonth);
-        const daysInMonth = eachDayOfInterval({ start, end });
+    const generateGrid = (dbData: any[], startDate: Date, count: number) => {
+        const newDays: DaySchedule[] = [];
 
-        const newDays: DaySchedule[] = daysInMonth.map(d => {
+        for (let i = 0; i < count; i++) {
+            const d = new Date(startDate);
+            d.setDate(startDate.getDate() + i);
             const dateStr = format(d, 'yyyy-MM-dd');
             const saved = dbData?.find((s: any) => s.date === dateStr);
             const isSunday = d.getDay() === 0;
 
-            return {
+            newDays.push({
                 date: dateStr,
                 dayName: format(d, 'EEEE', { locale: es }),
                 dayNumber: format(d, 'dd'),
                 status: saved?.status || (isSunday && sundaysBlocked ? 'DISABLED_BY_RULE' : 'OPEN'),
                 staffShifts: saved?.staff_shifts || {}
-            };
-        });
+            });
+        }
         setDays(newDays);
     };
 
-    // Cargar datos cuando cambia el mes o estado de domingos
+    // Cargar datos cuando cambia daysToShow o domingos
     useEffect(() => {
-        loadData();
-    }, [currentDate, sundaysBlocked]);
+        loadData(daysToShow);
+    }, [daysToShow, sundaysBlocked]);
 
     // Scroll automático al día actual después de cargar
     useEffect(() => {
@@ -533,6 +542,7 @@ export default function SchedulerPage() {
             areaId: areaToSave
         };
         setDays(newDays);
+        setHasUnsavedChanges(true);  // Marcar cambios pendientes
 
         // Notificación con nombre del template usado
         const templateUsed = templates.find(t => t.id === templateToUse);
@@ -552,6 +562,7 @@ export default function SchedulerPage() {
                     areaId: currentShift.areaId
                 };
                 setDays(newDays);
+                setHasUnsavedChanges(true);
                 const newTemplate = templates.find(t => t.id === activeTemplateId);
                 toast.success(`Turno cambiado a ${newTemplate?.name || 'nuevo turno'}`);
             }
@@ -565,6 +576,7 @@ export default function SchedulerPage() {
                 areaId: currentShift.areaId
             };
             setDays(newDays);
+            setHasUnsavedChanges(true);
             toast.success(`${staff?.full_name || 'Empleado'} → ${templates[nextIdx].name}`);
         }
     };
@@ -584,6 +596,7 @@ export default function SchedulerPage() {
                 newDays[idx].status = 'OPEN';
             }
             setDays(newDays);
+            setHasUnsavedChanges(true);
         }
         if (action === 'clear') {
             setConfirmDialog({
@@ -595,6 +608,7 @@ export default function SchedulerPage() {
                     const nd = [...days];
                     nd[idx].staffShifts = {};
                     setDays(nd);
+                    setHasUnsavedChanges(true);
                     setConfirmDialog(prev => ({ ...prev, isOpen: false }));
                     toast.success('Turnos eliminados');
                 }
@@ -616,6 +630,7 @@ export default function SchedulerPage() {
 
             const totalShifts = days.reduce((acc, d) => acc + Object.keys(d.staffShifts).length, 0);
             toast.success(`¡Guardado! ${totalShifts} turnos en ${days.length} días`, { id: toastId });
+            setHasUnsavedChanges(false);  // Limpiar bandera de cambios
         } catch (error) {
             console.error('Error guardando:', error);
             toast.error('Error al guardar los cambios', { id: toastId });
@@ -624,24 +639,243 @@ export default function SchedulerPage() {
         }
     };
 
-    // Auto-fill - Usa el turno activo o el primero disponible
-    const autoFill = () => {
-        if (templates.length === 0) return toast.error("Crea plantillas primero");
-        const templateToUse = activeTemplateId || templates[0].id;
-        const newDays = days.map(d => {
-            if (d.status !== 'OPEN') return d;
-            const shifts = { ...d.staffShifts };
-            filteredStaff.forEach(s => {
-                if (!shifts[s.id]) {
-                    // Usar el área filtrada actual, o el área principal del empleado si estamos en "Todos"
-                    const areaToSave = selectedAreaId !== 'ALL' ? selectedAreaId : (s.area_ids?.[0] || null);
-                    shifts[s.id] = { templateId: templateToUse, areaId: areaToSave };
+    // --- CAMBIO DE VISTA CON GUARD DE CAMBIOS SIN GUARDAR ---
+    const changeViewMode = (mode: 15 | 30) => {
+        if (mode === daysToShow) return;
+
+        if (hasUnsavedChanges) {
+            setConfirmDialog({
+                isOpen: true,
+                title: 'Cambios sin guardar',
+                message: 'Tienes cambios pendientes. Si cambias de vista ahora, perderás tu trabajo actual. ¿Deseas continuar?',
+                variant: 'danger',
+                onConfirm: () => {
+                    setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                    setHasUnsavedChanges(false);
+                    setDaysToShow(mode);
                 }
             });
-            return { ...d, staffShifts: shifts };
+        } else {
+            setDaysToShow(mode);
+        }
+    };
+
+    // --- SCHEDULE GENERATION LOGIC ---
+    const handleGenerateSchedule = (
+        mode: 'UNIFORM' | 'PATTERN' | 'RANDOM_PICK',
+        selectedIds: string[]
+    ) => {
+        const newDays = days.map((day, dayIndex) => {
+            if (day.status !== 'OPEN') return day;
+            const newShifts = { ...day.staffShifts };
+
+            filteredStaff.forEach((staff, staffIndex) => {
+                // Solo rellenar huecos vacíos
+                if (newShifts[staff.id]) return;
+
+                let templateId = '';
+
+                if (mode === 'UNIFORM') {
+                    templateId = selectedIds[0];
+                } else if (mode === 'RANDOM_PICK') {
+                    templateId = selectedIds[Math.floor(Math.random() * selectedIds.length)];
+                } else if (mode === 'PATTERN') {
+                    const idx = (dayIndex + staffIndex) % templates.length;
+                    templateId = templates[idx].id;
+                }
+
+                if (templateId) {
+                    const areaToSave = selectedAreaId !== 'ALL' ? selectedAreaId : (staff.area_ids?.[0] || null);
+                    newShifts[staff.id] = { templateId, areaId: areaToSave };
+                }
+            });
+            return { ...day, staffShifts: newShifts };
         });
+
         setDays(newDays);
-        toast.success('Relleno completado');
+        setShowGenerator(false);
+        toast.success('¡Horario generado mágicamente! ✨');
+    };
+    // --- GENERATOR MODAL (Google Material You Style) ---
+    const GeneratorModal = () => {
+        const [mode, setMode] = useState<'UNIFORM' | 'PATTERN' | 'RANDOM_PICK'>('RANDOM_PICK');
+        const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+        // Lógica para "Seleccionar Todo"
+        const areAllSelected = templates.length > 0 && selectedIds.length === templates.length;
+
+        const toggleSelectAll = () => {
+            if (areAllSelected) {
+                setSelectedIds([]);
+            } else {
+                setSelectedIds(templates.map(t => t.id));
+            }
+        };
+
+        if (!showGenerator) return null;
+
+        const toggleTemplate = (id: string) => {
+            if (mode === 'UNIFORM') {
+                setSelectedIds([id]);
+            } else {
+                setSelectedIds(prev =>
+                    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                );
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                {/* Backdrop */}
+                <div
+                    className="absolute inset-0 bg-[#001d35]/20 backdrop-blur-sm transition-opacity duration-300"
+                    onClick={() => setShowGenerator(false)}
+                />
+
+                {/* Modal Card */}
+                <div className="relative bg-white w-full max-w-lg rounded-[28px] shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-modal-scale border border-white/50">
+
+                    {/* Header */}
+                    <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white">
+                        <h2 className="text-xl font-normal text-[#001d35] flex items-center gap-2">
+                            <Sparkles className="text-indigo-500 fill-indigo-100" size={20} />
+                            Generar <span className="font-semibold">Horarios</span>
+                        </h2>
+                        <button
+                            onClick={() => setShowGenerator(false)}
+                            className="p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="px-6 pt-4 pb-2">
+                        <div className="flex p-1 bg-[#f0f4f8] rounded-full">
+                            {[
+                                { id: 'RANDOM_PICK', label: 'Aleatorio', icon: Shuffle },
+                                { id: 'UNIFORM', label: 'Fijo', icon: AlignJustify },
+                                { id: 'PATTERN', label: 'Rotativo', icon: Repeat },
+                            ].map((tab) => {
+                                const isActive = mode === tab.id;
+                                const Icon = tab.icon;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => { setMode(tab.id as 'UNIFORM' | 'PATTERN' | 'RANDOM_PICK'); setSelectedIds([]); }}
+                                        className={`
+                                            flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full text-sm font-medium transition-all duration-200
+                                            ${isActive
+                                                ? 'bg-white text-[#001d35] shadow-sm ring-1 ring-black/5'
+                                                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                                            }
+                                        `}
+                                    >
+                                        <Icon size={16} className={isActive ? 'text-indigo-600' : ''} />
+                                        {tab.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                        {/* Description */}
+                        <div className="mb-6 px-4 py-3 bg-[#eaf1fb] text-[#001d35] rounded-xl text-sm border border-[#d3e3fd] flex gap-3">
+                            <div className="mt-0.5 shrink-0 text-blue-600"><CalendarDays size={18} /></div>
+                            <p>
+                                {mode === 'RANDOM_PICK' && "Rellena los huecos vacíos eligiendo al azar entre los turnos que selecciones abajo."}
+                                {mode === 'UNIFORM' && "Aplica un único turno a todos los espacios vacíos del calendario visible."}
+                                {mode === 'PATTERN' && "Asigna turnos en secuencia rotativa (A → B → C) para distribuir la carga equitativamente."}
+                            </p>
+                        </div>
+
+                        {/* Template Selector */}
+                        {mode !== 'PATTERN' ? (
+                            <div>
+                                <div className="flex justify-between items-end mb-3 px-1">
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        {mode === 'UNIFORM' ? 'Selecciona 1 turno' : 'Selecciona los turnos a usar'}
+                                    </p>
+
+                                    {/* BOTÓN SELECCIONAR TODO (Solo visible en modo Random) */}
+                                    {mode === 'RANDOM_PICK' && (
+                                        <button
+                                            onClick={toggleSelectAll}
+                                            className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded transition-colors flex items-center gap-1.5"
+                                        >
+                                            {areAllSelected ? (
+                                                <><CheckSquare size={14} /> Deseleccionar</>
+                                            ) : (
+                                                <><Square size={14} /> Seleccionar todo</>
+                                            )}
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {templates.map(t => {
+                                        const isSelected = selectedIds.includes(t.id);
+                                        return (
+                                            <button
+                                                key={t.id}
+                                                onClick={() => toggleTemplate(t.id)}
+                                                className={`
+                                                    relative p-3 rounded-2xl border transition-all duration-200 text-left group
+                                                    ${isSelected
+                                                        ? 'bg-[#d3e3fd] border-[#7cacf8] shadow-sm'
+                                                        : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                                                    }
+                                                `}
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <span className={`text-sm font-bold ${isSelected ? 'text-[#001d35]' : 'text-slate-700'}`}>
+                                                        {t.code}
+                                                    </span>
+                                                    {isSelected && (
+                                                        <div className="bg-[#001d35] text-white rounded-full p-0.5">
+                                                            <Check size={10} strokeWidth={3} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <span className={`text-[11px] truncate block mt-1 ${isSelected ? 'text-blue-900' : 'text-slate-500'}`}>
+                                                    {t.name}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                                <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-3">
+                                    <Repeat size={32} className="opacity-50" />
+                                </div>
+                                <p className="text-sm">El patrón usará todos los turnos disponibles en orden.</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-4 px-6 border-t border-slate-100 bg-white flex justify-end gap-3">
+                        <button
+                            onClick={() => setShowGenerator(false)}
+                            className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-full transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => handleGenerateSchedule(mode, selectedIds)}
+                            disabled={mode !== 'PATTERN' && selectedIds.length === 0}
+                            className="bg-[#001d35] text-[#d3e3fd] hover:text-white hover:shadow-lg hover:-translate-y-0.5 px-6 py-2.5 rounded-full font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+                        >
+                            <Wand2 size={16} />
+                            Generar ahora
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     // --- MODAL DE PLANTILLAS ---
@@ -795,11 +1029,12 @@ export default function SchedulerPage() {
                                         <BookmarkPlus size={20} />
                                     </button>
                                     <button
-                                        onClick={autoFill}
-                                        title="Rellenar vacíos automáticamente"
-                                        className="p-2.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
+                                        onClick={() => setShowGenerator(true)}
+                                        title="Generador Mágico"
+                                        className="flex items-center gap-2 bg-[#c2e7ff] text-[#001d35] hover:bg-[#b3dffc] hover:shadow-md px-4 py-2 rounded-xl font-medium transition-all"
                                     >
-                                        <Wand2 size={20} />
+                                        <Sparkles size={18} />
+                                        <span className="hidden sm:inline">Generar</span>
                                     </button>
                                 </>
                             )}
@@ -879,6 +1114,31 @@ export default function SchedulerPage() {
                                 Vista
                             </button>
                         </div>
+
+                        <div className="w-px h-6 bg-slate-200"></div>
+
+                        {/* Vista 15/30 días */}
+                        <div className="bg-white rounded-full p-1 shadow-sm border border-slate-200 flex">
+                            <button
+                                onClick={() => changeViewMode(15)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${daysToShow === 15 ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            >
+                                15 Días
+                            </button>
+                            <button
+                                onClick={() => changeViewMode(30)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${daysToShow === 30 ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            >
+                                30 Días
+                            </button>
+                        </div>
+
+                        {/* Indicador de cambios sin guardar */}
+                        {hasUnsavedChanges && (
+                            <span className="px-2 py-1 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1">
+                                • Sin guardar
+                            </span>
+                        )}
                     </div>
                 </header>
 
@@ -1110,6 +1370,9 @@ export default function SchedulerPage() {
                         );
                     })() : null}
                 </DragOverlay>
+
+                {/* GENERATOR MODAL */}
+                <GeneratorModal />
 
                 <ConfirmModal
                     isOpen={confirmDialog.isOpen}
