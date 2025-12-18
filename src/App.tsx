@@ -9,27 +9,37 @@ import SchedulerPage from './pages/SchedulerPage';
 import AreasPage from './pages/AreasPage';
 
 import { Toaster } from 'react-hot-toast';
+import { AuthProvider } from './context/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 function App() {
   return (
-    <>
+    <AuthProvider>
       <Toaster position="top-right" toastOptions={{
         className: 'text-sm font-medium text-slate-700',
         style: { borderRadius: '12px', background: '#fff', color: '#333' }
       }} />
       <Routes>
+        {/* Ruta Pública */}
         <Route path="/login" element={<Login />} />
-        <Route path="/app" element={<AppLayout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="scheduler" element={<SchedulerPage />} />
-          <Route path="staff" element={<StaffPage />} />
-          <Route path="templates" element={<TemplatesPage />} />
-          <Route path="areas" element={<AreasPage />} />
+
+        {/* Rutas Protegidas */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/app" element={<AppLayout />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="scheduler" element={<SchedulerPage />} />
+            <Route path="staff" element={<StaffPage />} />
+            <Route path="templates" element={<TemplatesPage />} />
+            <Route path="areas" element={<AreasPage />} />
+          </Route>
         </Route>
+
+        {/* Catch all */}
         <Route path="/" element={<Navigate to="/app" replace />} />
+        <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
-    </>
+    </AuthProvider>
   );
 }
 

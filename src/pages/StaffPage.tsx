@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { UserPlus, Trash2, Loader2, User, Briefcase, Check, Pencil } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, User, Briefcase, Check, Pencil, Search } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Modal } from '../components/Modal';
 import type { Staff, Area } from '../types';
@@ -24,6 +24,50 @@ export default function StaffPage() {
     // Estado para confirmación visual de borrado
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+    // Estado para búsqueda/filtrado local
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // Ref para limpiar el timeout de confirmación de borrado
+    const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Helper para obtener iniciales correctamente (primera letra de cada palabra)
+    const getInitials = (name: string) => {
+        return name
+            .split(' ')
+            .map(n => n[0])
+            .filter(Boolean)
+            .join('')
+            .substring(0, 2)
+            .toUpperCase();
+    };
+
+    // Mapa de áreas para acceso O(1) en lugar de .find()
+    const areaMap = useMemo(() => {
+        const map = new Map<string, Area>();
+        areas.forEach(a => map.set(a.id, a));
+        return map;
+    }, [areas]);
+
+    // Lista filtrada de empleados
+    const filteredStaff = useMemo(() => {
+        if (!searchTerm.trim()) return staff;
+        const term = searchTerm.toLowerCase();
+        return staff.filter(
+            person =>
+                person.full_name.toLowerCase().includes(term) ||
+                person.role?.toLowerCase().includes(term)
+        );
+    }, [staff, searchTerm]);
+
+    // Sugerencias de roles existentes (para el datalist)
+    const roleSuggestions = useMemo(() => {
+        const roles = new Set<string>();
+        staff.forEach(s => {
+            if (s.role?.trim()) roles.add(s.role.trim());
+        });
+        return Array.from(roles).sort();
+    }, [staff]);
+
     useEffect(() => { loadData(); }, []);
 
     // Auto-open modal when coming from quick create menu
@@ -34,6 +78,15 @@ export default function StaffPage() {
             window.history.replaceState({}, document.title);
         }
     }, [location.state]);
+
+    // Limpiar timeout al desmontar el componente
+    useEffect(() => {
+        return () => {
+            if (deleteTimeoutRef.current) {
+                clearTimeout(deleteTimeoutRef.current);
+            }
+        };
+    }, []);
 
     const loadData = async () => {
         setLoading(true);
@@ -56,6 +109,12 @@ export default function StaffPage() {
 
     const handleCreate = async () => {
         if (!formData.full_name.trim()) return toast.error('El nombre es obligatorio');
+
+        // Validar duplicados
+        const exists = staff.some(
+            s => s.full_name.toLowerCase() === formData.full_name.trim().toLowerCase()
+        );
+        if (exists) return toast.error('Ya existe un empleado con este nombre');
 
         setSaving(true);
         try {
@@ -139,28 +198,42 @@ export default function StaffPage() {
 
     const handleDeleteClick = async (id: string) => {
         if (deleteConfirmId === id) {
-            // Segunda confirmación: Ejecutar borrado lógico usando servicio
+            // Limpiar timeout existente
+            if (deleteTimeoutRef.current) {
+                clearTimeout(deleteTimeoutRef.current);
+                deleteTimeoutRef.current = null;
+            }
+
+            // Guardar estado previo para posible rollback (Optimistic UI)
+            const previousStaff = [...staff];
+
+            // Actualizar UI inmediatamente
+            setStaff(staff.filter(p => p.id !== id));
+            setDeleteConfirmId(null);
+
             try {
                 await staffService.delete(id);
                 toast.success('Empleado desactivado');
-                loadData();
+                // No necesitamos loadData() si todo salió bien
             } catch (error) {
+                // Revertir cambios si falló
+                setStaff(previousStaff);
                 toast.error('Error al eliminar');
             }
-            setDeleteConfirmId(null);
         } else {
             // Primera vez: Mostrar estado de confirmación
             setDeleteConfirmId(id);
-            setTimeout(() => setDeleteConfirmId(null), 3000); // Resetear a los 3s
+            // Guardar referencia al timeout para poder limpiarlo
+            deleteTimeoutRef.current = setTimeout(() => setDeleteConfirmId(null), 3000);
         }
     };
 
-    // Helper para renderizar las etiquetas de áreas en la tarjeta
+    // Helper para renderizar las etiquetas de áreas en la tarjeta (usando areaMap para O(1))
     const getAreaBadges = (ids: string[]) => {
         if (!ids || ids.length === 0) return <span className="text-slate-400 text-xs italic">Sin área asignada</span>;
 
         return ids.map(id => {
-            const area = areas.find(a => a.id === id);
+            const area = areaMap.get(id); // Acceso O(1) en lugar de .find()
             if (!area) return null;
             const areaColor = getAreaColor(area.color);
             return (
@@ -178,7 +251,7 @@ export default function StaffPage() {
             <Toaster position="top-right" />
 
             {/* HEADER */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                         <User className="text-blue-600" /> Directorio de Personal
@@ -193,14 +266,28 @@ export default function StaffPage() {
                 </button>
             </div>
 
+            {/* BARRA DE BÚSQUEDA */}
+            <div className="mb-6">
+                <div className="relative max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input
+                        type="text"
+                        placeholder="Buscar por nombre o cargo..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    />
+                </div>
+            </div>
+
             {/* GRID DE TARJETAS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {staff.map((person) => (
+                {filteredStaff.map((person) => (
                     <div key={person.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all relative group flex flex-col">
                         <div className="flex items-start justify-between mb-3">
                             <div className="flex items-center gap-3 overflow-hidden">
                                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-50 to-indigo-100 text-blue-600 flex items-center justify-center font-bold text-sm border border-blue-100 shrink-0">
-                                    {person.full_name.substring(0, 2).toUpperCase()}
+                                    {getInitials(person.full_name)}
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{person.full_name}</h3>
@@ -233,6 +320,13 @@ export default function StaffPage() {
                         </div>
                     </div>
                 ))}
+
+                {filteredStaff.length === 0 && staff.length > 0 && (
+                    <div className="col-span-full py-12 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                        <Search size={32} className="mb-2 opacity-20" />
+                        <p>No se encontraron empleados con "{searchTerm}".</p>
+                    </div>
+                )}
 
                 {staff.length === 0 && (
                     <div className="col-span-full py-12 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
@@ -271,7 +365,13 @@ export default function StaffPage() {
                             placeholder="Ej: Médico General"
                             value={formData.role}
                             onChange={e => setFormData({ ...formData, role: e.target.value })}
+                            list="role-suggestions"
                         />
+                        <datalist id="role-suggestions">
+                            {roleSuggestions.map(role => (
+                                <option key={role} value={role} />
+                            ))}
+                        </datalist>
                     </div>
 
                     {/* Selector de Áreas (Chips) */}

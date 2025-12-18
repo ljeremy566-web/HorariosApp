@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { authService } from '../Services/authServices';
+import { Outlet, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
     Calendar, Users, Settings, Menu,
-    LayoutDashboard, Layers, Plus, Search, HelpCircle, Building2, LogOut
+    LayoutDashboard, Layers, Plus, HelpCircle, Building2, LogOut
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { TransitionLink } from '../components/TransitionLink';
@@ -13,7 +13,7 @@ export default function AppLayout() {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const navigate = useNavigate();
+    const { signOut, user } = useAuth();
     const location = useLocation();
 
     // Close modal on ESC key
@@ -25,16 +25,10 @@ export default function AppLayout() {
         return () => window.removeEventListener('keydown', handleEsc);
     }, []);
 
-    useEffect(() => {
-        authService.getSession().then((session) => {
-            if (!session) navigate('/login');
-        });
-    }, [navigate]);
-
     const handleLogout = async () => {
         try {
-            await authService.logout();
-            navigate('/login');
+            await signOut();
+            // La redirección la maneja ProtectedRoute automáticamente
         } catch (error) {
             console.error("Error al salir", error);
         }
@@ -118,14 +112,6 @@ export default function AppLayout() {
                     {/* Buscador estilo "Pill" grande */}
                     <div className="flex-1 max-w-3xl px-4">
                         <div className="relative group w-full max-w-2xl">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Search className="h-5 w-5 text-slate-500" />
-                            </div>
-                            <input
-                                type="text"
-                                className="block w-full pl-11 pr-3 py-3 border-none rounded-full leading-5 bg-[#eaf1fb] text-slate-900 placeholder-slate-500 focus:outline-none focus:bg-white focus:shadow-md transition-all duration-200 sm:text-base"
-                                placeholder="Buscar en horarios, profesores..."
-                            />
                         </div>
                     </div>
 
@@ -159,7 +145,7 @@ export default function AppLayout() {
                                     {/* Menu */}
                                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                                         <div className="px-4 py-2 border-b border-slate-100">
-                                            <p className="text-sm font-bold text-slate-800">Admin</p>
+                                            <p className="text-sm font-bold text-slate-800">{user?.email?.split('@')[0] || 'Usuario'}</p>
                                             <p className="text-xs text-slate-400">En línea</p>
                                         </div>
                                         <button
