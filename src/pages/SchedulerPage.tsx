@@ -14,7 +14,7 @@ import {
     Lock, Unlock, Save, Loader2, GripVertical, Clock,
     User, Copy, Trash2, ChevronLeft, ChevronRight,
     BookmarkPlus, DownloadCloud, X, Download, Check, Palette, Wand2, Calendar,
-    Shuffle, AlignJustify, Repeat, Sparkles, CalendarDays, CheckSquare, Square
+    Shuffle, AlignJustify, Repeat, Sparkles, CalendarDays, CheckSquare, Square, Eraser
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, addMonths, subMonths, isSameDay, addDays } from 'date-fns';
@@ -660,6 +660,33 @@ export default function SchedulerPage() {
         }
     };
 
+    // --- BOTÓN DE PÁNICO: LIMPIAR HORARIO ---
+    const handleClearSchedule = () => {
+        const hasShifts = days.some(day => Object.keys(day.staffShifts).length > 0);
+
+        if (!hasShifts) {
+            toast('✨ El horario ya está limpio', { icon: '🧹' });
+            return;
+        }
+
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Limpiar horario completo',
+            message: '¿Estás seguro de que quieres LIMPIAR todas las asignaciones visibles? Esta acción no se puede deshacer.',
+            variant: 'danger',
+            onConfirm: () => {
+                const newDays = days.map(day => {
+                    if (day.status !== 'OPEN') return day;
+                    return { ...day, staffShifts: {} };
+                });
+                setDays(newDays);
+                setHasUnsavedChanges(true);
+                setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                toast.success('Horario limpiado. Recuerda guardar si quieres hacerlo permanente.');
+            }
+        });
+    };
+
     // --- SCHEDULE GENERATION LOGIC ---
     const handleGenerateSchedule = (
         mode: 'UNIFORM' | 'PATTERN' | 'RANDOM_PICK',
@@ -1035,6 +1062,22 @@ export default function SchedulerPage() {
                                     >
                                         <Sparkles size={18} />
                                         <span className="hidden sm:inline">Generar</span>
+                                    </button>
+
+                                    {/* BOTÓN LIMPIAR (Pánico) */}
+                                    <button
+                                        onClick={handleClearSchedule}
+                                        disabled={!days.some(d => Object.keys(d.staffShifts).length > 0)}
+                                        className="
+                                            group flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all border
+                                            bg-white border-rose-200 text-rose-600 
+                                            hover:bg-rose-50 hover:border-rose-300 hover:shadow-sm
+                                            disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400
+                                        "
+                                        title="Borrar todas las asignaciones visibles"
+                                    >
+                                        <Eraser size={18} className="group-hover:animate-pulse" />
+                                        <span className="hidden sm:inline">Limpiar</span>
                                     </button>
                                 </>
                             )}
