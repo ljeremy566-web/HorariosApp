@@ -217,28 +217,105 @@
     }
 }
 
+/* ===== PRINT STYLES ===== */
+/* Optimized for A4 landscape printing */
 
-#nigger {
-    animation: nigger 1s ease-in-out forwards;
-}
+@media print {
 
-@keyframes nigger {
-    from {
-        opacity: 0;
+    /* Hide non-essential UI elements */
+    header,
+    .sidebar,
+    button,
+    [role="button"],
+    .modal,
+    .toast,
+    .no-print,
+    .custom-scrollbar::-webkit-scrollbar,
+    [class*="hover:"],
+    .drag-overlay {
+        display: none !important;
     }
 
-    to {
-        opacity: 100;
+    /* Reset page styling */
+    body {
+        background: white !important;
+        color: black !important;
+        font-size: 10pt;
+        margin: 0;
+        padding: 0;
+    }
 
+    /* Page setup for A4 landscape */
+    @page {
+        size: A4 landscape;
+        margin: 10mm;
+    }
+
+    /* Make the grid fill the page */
+    .scheduler-grid,
+    .calendar-grid {
+        width: 100% !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        page-break-inside: avoid;
+    }
+
+    /* Style day columns for print */
+    .day-column,
+    [data-date] {
+        border: 1px solid #ccc !important;
+        background: white !important;
+        min-width: auto !important;
+        flex: 1 !important;
+        padding: 4px !important;
+    }
+
+    /* Day header styling */
+    .day-header {
+        background: #f5f5f5 !important;
+        border-bottom: 1px solid #999 !important;
+        font-weight: bold;
+        padding: 4px !important;
+    }
+
+    /* Shift cards - use borders instead of backgrounds */
+    .shift-card,
+    [class*="bg-"] {
+        background: white !important;
+        border: 1px solid #666 !important;
+        box-shadow: none !important;
+        margin: 2px 0 !important;
+        padding: 2px 4px !important;
+        font-size: 8pt;
+    }
+
+    /* Closed days */
+    .day-closed {
+        background: repeating-linear-gradient(45deg,
+                #f0f0f0,
+                #f0f0f0 5px,
+                #e0e0e0 5px,
+                #e0e0e0 10px) !important;
+    }
+
+    /* Ensure text is visible */
+    * {
+        color: black !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* Remove animations */
+    * {
+        animation: none !important;
+        transition: none !important;
     }
 }
 
+/* Typing animation */
 #typing {
     display: flex;
-
-
     animation: typing 2s ease-in-out forwards;
-
 }
 
 @keyframes typing {
@@ -248,6 +325,5 @@
 
     to {
         opacity: 100%;
-
     }
 }

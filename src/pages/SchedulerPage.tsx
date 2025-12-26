@@ -5,11 +5,14 @@ import {
     PointerSensor,
     useSensor,
     useSensors,
+    type DragStartEvent,
+    type DragEndEvent,
 } from '@dnd-kit/core';
 import {
     Lock, Unlock, Save, Loader2,
     User, ChevronLeft, ChevronRight,
-    BookmarkPlus, DownloadCloud, Eraser, Palette, Sparkles, Clock, Check
+    BookmarkPlus, DownloadCloud, Eraser, Palette, Sparkles, Clock, Check,
+    Undo2, Redo2
 } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -28,6 +31,7 @@ import { GeneratorModal } from '../components/scheduler/GeneratorModal';
 // Hooks
 import { useSchedulerData } from '../hooks/useSchedulerData';
 import { useScheduleActions } from '../hooks/useScheduleActions';
+import { useHistorySync } from '../hooks/useHistory';
 
 // --- MAIN PAGE ---
 export default function SchedulerPage() {
@@ -48,13 +52,21 @@ export default function SchedulerPage() {
         gridContainerRef
     } = useSchedulerData();
 
+    // Undo/Redo history for days state
+    const { undo, redo, canUndo, canRedo, pushToHistory } = useHistorySync(days, setDays);
+
     // Local UI State
     const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
     const [selectedAreaId, setSelectedAreaId] = useState<string>('ALL');
     const [showPatternModal, setShowPatternModal] = useState(false);
     const [showGenerator, setShowGenerator] = useState(false);
     const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
-    const [activeDragData, setActiveDragData] = useState<any>(null);
+    const [activeDragData, setActiveDragData] = useState<{
+        type?: string;
+        staff?: import('../types').Staff;
+        templateId?: string;
+        areaId?: string | null;
+    } | null>(null);
     const [confirmDialog, setConfirmDialog] = useState<{
         isOpen: boolean; title: string; message: string; onConfirm: () => void; variant?: 'default' | 'danger';
     }>({ isOpen: false, title: '', message: '', onConfirm: () => { } });
@@ -62,6 +74,7 @@ export default function SchedulerPage() {
     // Actions hook
     const {
         saving,
+        isAutoSaving,
         hasUnsavedChanges,
         setHasUnsavedChanges,
         handleDragEnd: onDragEndAction,
@@ -93,11 +106,11 @@ export default function SchedulerPage() {
 
     // Wrappers for actions requiring confirmation or specific UI handling within the page
     // Wrappers for actions requiring confirmation or specific UI handling within the page
-    const handleDragStart = useCallback((e: any) => {
-        setActiveDragData(e.active.data.current);
+    const handleDragStart = useCallback((e: DragStartEvent) => {
+        setActiveDragData(e.active.data.current as typeof activeDragData);
     }, []);
 
-    const handleDragEnd = useCallback((e: any) => {
+    const handleDragEnd = useCallback((e: DragEndEvent) => {
         setActiveDragData(null);
         onDragEndAction(e);
     }, [onDragEndAction]);
@@ -201,6 +214,26 @@ export default function SchedulerPage() {
                         <div className="flex items-center gap-2">
                             {viewMode === 'edit' && (
                                 <>
+                                    {/* Undo/Redo buttons */}
+                                    <button
+                                        onClick={undo}
+                                        disabled={!canUndo}
+                                        title="Deshacer (Ctrl+Z)"
+                                        className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        <Undo2 size={20} />
+                                    </button>
+                                    <button
+                                        onClick={redo}
+                                        disabled={!canRedo}
+                                        title="Rehacer (Ctrl+Y)"
+                                        className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        <Redo2 size={20} />
+                                    </button>
+
+                                    <div className="w-px h-6 bg-slate-200"></div>
+
                                     <button onClick={() => setShowPatternModal(true)} title="Cargar plantilla" className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
                                         <DownloadCloud size={20} />
                                     </button>
@@ -324,10 +357,22 @@ export default function SchedulerPage() {
                             </button>
                         </div>
 
-                        {/* Indicador de cambios sin guardar */}
-                        {hasUnsavedChanges && (
-                            <span className="px-2 py-1 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1">
-                                • Sin guardar
+                        {/* Indicador de cambios sin guardar / auto-guardado */}
+                        {(hasUnsavedChanges || isAutoSaving) && (
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-medium flex items-center gap-1 transition-all ${isAutoSaving
+                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                : 'bg-amber-100 text-amber-700 border border-amber-200'
+                                }`}>
+                                {isAutoSaving ? (
+                                    <>
+                                        <Loader2 size={10} className="animate-spin" />
+                                        Guardando...
+                                    </>
+                                ) : (
+                                    <>
+                                        • Sin guardar (auto-guardado en 2s)
+                                    </>
+                                )}
                             </span>
                         )}
                     </div>

@@ -31,6 +31,10 @@ export const DraggableStaff = memo(function DraggableStaff({ staff, areas, shift
             style={style}
             {...listeners}
             {...attributes}
+            role="button"
+            tabIndex={0}
+            aria-label={`Arrastrar empleado ${staff.full_name}${staffArea ? ` del área ${staffArea.name}` : ''}`}
+            aria-roledescription="elemento arrastrable"
             className={`
                 flex items-center gap-3 px-3 py-3 mx-2 my-1 rounded-xl 
                 cursor-grab active:cursor-grabbing select-none 
@@ -38,6 +42,7 @@ export const DraggableStaff = memo(function DraggableStaff({ staff, areas, shift
                 border ${areaColor.border.replace('border-', 'border-opacity-20 border-')}
                 ${areaColor.bg} hover:shadow-md hover:border-opacity-60
                 active:scale-[0.98]
+                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1
                 ${isDragging ? 'opacity-40 scale-105 shadow-xl z-50' : ''}
             `}
         >

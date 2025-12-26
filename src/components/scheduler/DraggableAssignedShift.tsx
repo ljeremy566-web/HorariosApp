@@ -35,8 +35,22 @@ export function DraggableAssignedShift({
             style={style}
             {...listeners}
             {...attributes}
+            role="button"
+            tabIndex={viewMode === 'edit' ? 0 : -1}
+            aria-label={`Turno de ${staff.full_name}, ${template?.name || 'turno'}, ${template?.schedule_config?.[0]?.start || ''} a ${template?.schedule_config?.[template?.schedule_config?.length - 1]?.end || ''}`}
+            aria-roledescription="turno arrastrable"
             onClick={() => {
                 if (viewMode === 'edit') onShiftClick(dayIdx, staff.id);
+            }}
+            onKeyDown={(e) => {
+                if (viewMode !== 'edit') return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onShiftClick(dayIdx, staff.id);
+                } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    onRemoveShift(dayIdx, staff.id);
+                }
             }}
             onContextMenu={(e) => {
                 e.preventDefault();
@@ -48,6 +62,7 @@ export function DraggableAssignedShift({
                 ${areaColor.bg} ${areaColor.text}
                 border ${areaColor.border.replace('border-', 'border-opacity-30 border-')}
                 hover:shadow-md hover:scale-[1.01] active:scale-[0.98] hover:border-opacity-80
+                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1
                 ${isDragging ? 'opacity-30' : ''}
             `}
         >

@@ -20,7 +20,11 @@ export function useScheduleActions({
     days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId
 }: UseScheduleActionsProps) {
     const [saving, setSaving] = useState(false);
+    const [isAutoSaving, setIsAutoSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+    // Auto-save debounce ref
+    const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Refs for stable access in callbacks
     const daysRef = useRef(days);
@@ -37,6 +41,93 @@ export function useScheduleActions({
     useEffect(() => { areasRef.current = areas; }, [areas]);
     useEffect(() => { selectedAreaIdRef.current = selectedAreaId; }, [selectedAreaId]);
     useEffect(() => { activeTemplateIdRef.current = activeTemplateId; }, [activeTemplateId]);
+
+    // --- AUTO-SAVE WITH DEBOUNCE (2 seconds after last change) ---
+    useEffect(() => {
+        if (!hasUnsavedChanges) return;
+
+        // Clear any existing timeout
+        if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+        }
+
+        // Set new timeout for auto-save
+        autoSaveTimeoutRef.current = setTimeout(async () => {
+            setIsAutoSaving(true);
+            try {
+                const currentDays = daysRef.current;
+                const payload = currentDays.map(d => ({
+                    date: d.date,
+                    status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE',
+                    staff_shifts: d.staffShifts
+                }));
+                await availabilityService.upsertSchedule(payload);
+                setHasUnsavedChanges(false);
+                toast.success('Guardado automático ✓', {
+                    duration: 1500,
+                    icon: '💾',
+                    style: { fontSize: '12px', padding: '8px 12px' }
+                });
+            } catch (error) {
+                console.error('Auto-save error:', error);
+                toast.error('Error en guardado automático', { duration: 2000 });
+            } finally {
+                setIsAutoSaving(false);
+            }
+        }, 2000); // 2 seconds debounce
+
+        // Cleanup timeout on unmount or when hasUnsavedChanges changes
+        return () => {
+            if (autoSaveTimeoutRef.current) {
+                clearTimeout(autoSaveTimeoutRef.current);
+            }
+        };
+    }, [hasUnsavedChanges]);
+
+    // --- CONFLICT DETECTION: Check if staff has overlapping shifts on the same day ---
+    const checkTimeConflict = useCallback((staffId: string, targetDayIdx: number, newTemplateId: string): boolean => {
+        const currentDays = daysRef.current;
+        const targetDay = currentDays[targetDayIdx];
+        const templates = templatesRef.current;
+
+        // Get the new shift's time range
+        const newTemplate = templates.find(t => t.id === newTemplateId);
+        if (!newTemplate?.schedule_config?.length) return false;
+
+        const newStart = newTemplate.schedule_config[0].start;
+        const newEnd = newTemplate.schedule_config[newTemplate.schedule_config.length - 1].end;
+
+        // Check all existing shifts on this day for the same staff member
+        // Staff with multiple areas could be assigned multiple times
+        for (const [assignedStaffId, shiftValue] of Object.entries(targetDay.staffShifts)) {
+            if (assignedStaffId !== staffId) continue;
+
+            const shiftData = getShiftData(shiftValue);
+            const existingTemplate = templates.find(t => t.id === shiftData.templateId);
+
+            if (!existingTemplate?.schedule_config?.length) continue;
+
+            const existingStart = existingTemplate.schedule_config[0].start;
+            const existingEnd = existingTemplate.schedule_config[existingTemplate.schedule_config.length - 1].end;
+
+            // Check for time overlap: (StartA < EndB) && (EndA > StartB)
+            const timeToMinutes = (time: string): number => {
+                const [hours, minutes] = time.split(':').map(Number);
+                return hours * 60 + minutes;
+            };
+
+            const newStartMins = timeToMinutes(newStart);
+            const newEndMins = timeToMinutes(newEnd);
+            const existingStartMins = timeToMinutes(existingStart);
+            const existingEndMins = timeToMinutes(existingEnd);
+
+            if (newStartMins < existingEndMins && newEndMins > existingStartMins) {
+                return true; // Conflict detected
+            }
+        }
+
+        return false; // No conflict
+    }, []);
 
     // --- DRAG & DROP LOGIC ---
     const handleDragEnd = useCallback((e: DragEndEvent) => {
@@ -83,6 +174,15 @@ export function useScheduleActions({
         // IMPORTANTE: Guardar el turno con el área actualmente seleccionada
         const areaToSave = selectedAreaIdRef.current !== 'ALL' ? selectedAreaIdRef.current : (staff.area_ids?.[0] || null);
 
+        // Check for time conflict before assigning
+        if (checkTimeConflict(staff.id, targetDayIdx, templateToUse)) {
+            toast.error(`⚠️ ${staff.full_name} ya tiene un turno que se superpone en este horario`, {
+                duration: 4000,
+                icon: '⏰'
+            });
+            return; // Prevent assignment
+        }
+
         const newDays = [...currentDays];
         newDays[targetDayIdx] = {
             ...newDays[targetDayIdx],
@@ -97,7 +197,7 @@ export function useScheduleActions({
 
         const templateUsed = templatesRef.current.find(t => t.id === templateToUse);
         toast.success(`${staff.full_name} asignado al día ${targetDay.dayNumber} (${templateUsed?.name || 'turno'})`);
-    }, [setDays]);
+    }, [setDays, checkTimeConflict]);
 
     // --- CLICK ACTIONS ---
     const onShiftClick = useCallback((i: number, sId: string) => {
@@ -287,6 +387,7 @@ export function useScheduleActions({
 
     return {
         saving,
+        isAutoSaving,
         hasUnsavedChanges,
         setHasUnsavedChanges,
         handleDragEnd,
