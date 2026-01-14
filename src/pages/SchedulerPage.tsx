@@ -53,7 +53,7 @@ export default function SchedulerPage() {
     } = useSchedulerData();
 
     // Undo/Redo history for days state
-    const { undo, redo, canUndo, canRedo, pushToHistory } = useHistorySync(days, setDays);
+    const { undo, redo, canUndo, canRedo, clearHistory, pushToHistory } = useHistorySync(days, setDays);
 
     // Local UI State
     const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
@@ -88,7 +88,7 @@ export default function SchedulerPage() {
         saveAsPattern,
         handleGenerateSchedule
     } = useScheduleActions({
-        days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory
+        days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory, clearHistory
     });
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));

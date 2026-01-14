@@ -15,10 +15,11 @@ interface UseScheduleActionsProps {
     selectedAreaId: string;
     activeTemplateId: string | null;
     pushToHistory: () => void; // <-- For undo/redo
+    clearHistory: () => void;  // <-- Clear history after save
 }
 
 export function useScheduleActions({
-    days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory
+    days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory, clearHistory
 }: UseScheduleActionsProps) {
     const [saving, setSaving] = useState(false);
     const [isAutoSaving, setIsAutoSaving] = useState(false);
@@ -64,6 +65,7 @@ export function useScheduleActions({
                 }));
                 await availabilityService.upsertSchedule(payload);
                 setHasUnsavedChanges(false);
+                clearHistory(); // Clear undo/redo history after successful auto-save
                 toast.success('Guardado automático ✓', {
                     duration: 1500,
                     icon: '💾',
@@ -282,6 +284,7 @@ export function useScheduleActions({
             const totalShifts = currentDays.reduce((acc, d) => acc + Object.keys(d.staffShifts).length, 0);
             toast.success(`¡Guardado! ${totalShifts} turnos en ${currentDays.length} días`, { id: toastId });
             setHasUnsavedChanges(false);
+            clearHistory(); // Clear undo/redo history after successful save
         } catch (error) {
             console.error('Error guardando:', error);
             toast.error('Error al guardar los cambios', { id: toastId });
