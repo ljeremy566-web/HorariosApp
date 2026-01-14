@@ -88,7 +88,7 @@ export default function SchedulerPage() {
         saveAsPattern,
         handleGenerateSchedule
     } = useScheduleActions({
-        days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId
+        days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory
     });
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));

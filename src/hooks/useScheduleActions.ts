@@ -14,10 +14,11 @@ interface UseScheduleActionsProps {
     areas: Area[];
     selectedAreaId: string;
     activeTemplateId: string | null;
+    pushToHistory: () => void; // <-- For undo/redo
 }
 
 export function useScheduleActions({
-    days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId
+    days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory
 }: UseScheduleActionsProps) {
     const [saving, setSaving] = useState(false);
     const [isAutoSaving, setIsAutoSaving] = useState(false);
@@ -82,7 +83,7 @@ export function useScheduleActions({
                 clearTimeout(autoSaveTimeoutRef.current);
             }
         };
-    }, [hasUnsavedChanges]);
+    }, [days, hasUnsavedChanges]); // Add 'days' to reset timer on each change
 
     // --- CONFLICT DETECTION: Check if staff has overlapping shifts on the same day ---
     const checkTimeConflict = useCallback((staffId: string, targetDayIdx: number, newTemplateId: string): boolean => {
@@ -157,6 +158,7 @@ export function useScheduleActions({
             newDays[targetDayIdx] = { ...newDays[targetDayIdx], staffShifts: { ...newDays[targetDayIdx].staffShifts } };
             newDays[targetDayIdx].staffShifts[staffId] = existingShift;
 
+            pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
             setHasUnsavedChanges(true); // Re-scheduling counts as change
             toast.success(`Turno de ${draggedStaff?.full_name || 'empleado'} movido al día ${targetDay.dayNumber}`);
@@ -192,12 +194,13 @@ export function useScheduleActions({
             templateId: templateToUse,
             areaId: areaToSave
         };
+        pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
         setHasUnsavedChanges(true);
 
         const templateUsed = templatesRef.current.find(t => t.id === templateToUse);
         toast.success(`${staff.full_name} asignado al día ${targetDay.dayNumber} (${templateUsed?.name || 'turno'})`);
-    }, [setDays, checkTimeConflict]);
+    }, [setDays, checkTimeConflict, pushToHistory]);
 
     // --- CLICK ACTIONS ---
     const onShiftClick = useCallback((i: number, sId: string) => {
@@ -213,6 +216,7 @@ export function useScheduleActions({
                     templateId: activeTemplateIdRef.current,
                     areaId: currentShift.areaId
                 };
+                pushToHistory(); // 📸 Snapshot before change
                 setDays(newDays);
                 setHasUnsavedChanges(true);
                 const newTemplate = templatesRef.current.find(t => t.id === activeTemplateIdRef.current);
@@ -228,11 +232,12 @@ export function useScheduleActions({
                 templateId: templatesRef.current[nextIdx].id,
                 areaId: currentShift.areaId
             };
+            pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
             setHasUnsavedChanges(true);
             toast.success(`${staff?.full_name || 'Empleado'} → ${templatesRef.current[nextIdx].name}`);
         }
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     const handleDayAction = useCallback((action: string, idx: number) => {
         const currentDays = daysRef.current;
@@ -243,25 +248,28 @@ export function useScheduleActions({
             } else {
                 newDays[idx] = { ...newDays[idx], status: 'OPEN' };
             }
+            pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
             setHasUnsavedChanges(true);
         }
         if (action === 'copy_prev' && idx > 0) {
             newDays[idx] = { ...newDays[idx], staffShifts: { ...newDays[idx - 1].staffShifts } };
+            pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
             setHasUnsavedChanges(true);
             toast.success('Copiado del día anterior');
         }
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     const clearDay = useCallback((idx: number) => {
         const currentDays = daysRef.current;
         const newDays = [...currentDays];
         newDays[idx] = { ...newDays[idx], staffShifts: {} };
+        pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
         setHasUnsavedChanges(true);
         toast.success('Turnos eliminados');
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     // --- SAVING ---
     const handleSave = useCallback(async () => {
@@ -350,10 +358,11 @@ export function useScheduleActions({
             return { ...day, staffShifts: newShifts };
         });
 
+        pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
         setHasUnsavedChanges(true); // Generation is a change
         toast.success('¡Horario generado mágicamente! ✨');
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     const clearAllSchedule = useCallback(() => {
         const currentDays = daysRef.current;
@@ -361,29 +370,32 @@ export function useScheduleActions({
             if (day.status !== 'OPEN') return day;
             return { ...day, staffShifts: {} };
         });
+        pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
         setHasUnsavedChanges(true);
         toast.success('Horario limpiado. Recuerda guardar si quieres hacerlo permanente.');
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     const removeShift = useCallback((dayIdx: number, staffId: string) => {
         const currentDays = daysRef.current;
         const newDays = [...currentDays];
         newDays[dayIdx] = { ...newDays[dayIdx], staffShifts: { ...newDays[dayIdx].staffShifts } };
         delete newDays[dayIdx].staffShifts[staffId];
+        pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
         setHasUnsavedChanges(true);
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     const applyPattern = useCallback((pattern: any) => {
         const currentDays = daysRef.current;
         const newDays = currentDays.map((d, i) =>
             i < pattern.shift_data.length ? { ...d, staffShifts: { ...d.staffShifts, ...pattern.shift_data[i] } } : d
         );
+        pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
         setHasUnsavedChanges(true);
         toast.success(`Plantilla "${pattern.name}" aplicada`);
-    }, [setDays]);
+    }, [setDays, pushToHistory]);
 
     return {
         saving,
