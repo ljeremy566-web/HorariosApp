@@ -10,27 +10,27 @@ export const timeRangeSchema = z.object({
     start: timeStringSchema,
     end: timeStringSchema,
 }).refine((data) => data.end > data.start, {
-    message: "La hora fin debe ser posterior al inicio",
+    message: "La hora de salida debe ser después de la entrada",
     path: ["end"],
 });
 
-// Validador principal para la Plantilla (ShiftTemplate)
+// Validador principal para la Plantilla de Turno
 export const shiftTemplateSchema = z.object({
     name: z.string()
-        .min(3, "El nombre debe tener al menos 3 letras")
+        .min(3, "El nombre del turno debe tener al menos 3 letras")
         .max(50, "El nombre es muy largo"),
 
     code: z.string()
         .min(1, "El código es obligatorio")
-        .max(5, "Máximo 5 caracteres")
+        .max(5, "Máx 5 caracteres")
         .regex(/^[A-Z0-9]+$/, "Solo mayúsculas y números"),
 
-    color: z.string()
-        .regex(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i, "Debe ser un color Hex válido (ej. #FF0000)"),
+    // CAMBIO IMPORTANTE: Aceptamos string simple porque usas nombres de colores (blue, red...)
+    color: z.string().min(1, "Debes seleccionar un color"),
 
     schedule_config: z.array(timeRangeSchema)
-        .min(1, "Debes agregar al menos un rango de horario"),
+        .min(1, "Debes agregar al menos un horario de trabajo"),
 });
 
-// Tipo inferido para usar en tus formularios
+// Tipo inferido
 export type CreateTemplateInput = z.infer<typeof shiftTemplateSchema>;
