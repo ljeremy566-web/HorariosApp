@@ -28,6 +28,9 @@ export function useScheduleActions({
     // Auto-save debounce ref
     const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Dirty days tracking - only save modified days
+    const dirtyDaysRef = useRef<Set<string>>(new Set());
+
     // Refs for stable access in callbacks
     const daysRef = useRef(days);
     const templatesRef = useRef(templates);
@@ -44,6 +47,11 @@ export function useScheduleActions({
     useEffect(() => { selectedAreaIdRef.current = selectedAreaId; }, [selectedAreaId]);
     useEffect(() => { activeTemplateIdRef.current = activeTemplateId; }, [activeTemplateId]);
 
+    // Helper to mark a day as dirty
+    const markDayDirty = useCallback((date: string) => {
+        dirtyDaysRef.current.add(date);
+    }, []);
+
     // --- AUTO-SAVE WITH DEBOUNCE (2 seconds after last change) ---
     useEffect(() => {
         if (!hasUnsavedChanges) return;
@@ -58,15 +66,25 @@ export function useScheduleActions({
             setIsAutoSaving(true);
             try {
                 const currentDays = daysRef.current;
-                const payload = currentDays.map(d => ({
-                    date: d.date,
-                    status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE',
-                    staff_shifts: d.staffShifts
-                }));
-                await availabilityService.upsertSchedule(payload);
+                const dirtyDates = Array.from(dirtyDaysRef.current);
+
+                // Only save dirty days (optimization + race condition safety)
+                const payload = currentDays
+                    .filter(d => dirtyDates.includes(d.date))
+                    .map(d => ({
+                        date: d.date,
+                        status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE',
+                        staff_shifts: d.staffShifts
+                    }));
+
+                if (payload.length > 0) {
+                    await availabilityService.upsertScheduleMerge(payload);
+                }
+
+                dirtyDaysRef.current.clear();
                 setHasUnsavedChanges(false);
                 clearHistory(); // Clear undo/redo history after successful auto-save
-                toast.success('Guardado automático ✓', {
+                toast.success(`Guardado automático (${payload.length} días) ✓`, {
                     duration: 1500,
                     icon: '💾',
                     style: { fontSize: '12px', padding: '8px 12px' }
@@ -162,6 +180,8 @@ export function useScheduleActions({
 
             pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
+            markDayDirty(newDays[sourceDayIdx].date); // Mark source day as dirty
+            markDayDirty(targetDay.date); // Mark target day as dirty
             setHasUnsavedChanges(true); // Re-scheduling counts as change
             toast.success(`Turno de ${draggedStaff?.full_name || 'empleado'} movido al día ${targetDay.dayNumber}`);
             return;
@@ -198,11 +218,12 @@ export function useScheduleActions({
         };
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
+        markDayDirty(targetDay.date); // Mark day as dirty
         setHasUnsavedChanges(true);
 
         const templateUsed = templatesRef.current.find(t => t.id === templateToUse);
         toast.success(`${staff.full_name} asignado al día ${targetDay.dayNumber} (${templateUsed?.name || 'turno'})`);
-    }, [setDays, checkTimeConflict, pushToHistory]);
+    }, [setDays, checkTimeConflict, pushToHistory, markDayDirty]);
 
     // --- CLICK ACTIONS ---
     const onShiftClick = useCallback((i: number, sId: string) => {
@@ -220,6 +241,7 @@ export function useScheduleActions({
                 };
                 pushToHistory(); // 📸 Snapshot before change
                 setDays(newDays);
+                markDayDirty(newDays[i].date); // Mark day as dirty
                 setHasUnsavedChanges(true);
                 const newTemplate = templatesRef.current.find(t => t.id === activeTemplateIdRef.current);
                 toast.success(`Turno cambiado a ${newTemplate?.name || 'nuevo turno'}`);
@@ -236,10 +258,11 @@ export function useScheduleActions({
             };
             pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
+            markDayDirty(newDays[i].date); // Mark day as dirty
             setHasUnsavedChanges(true);
             toast.success(`${staff?.full_name || 'Empleado'} → ${templatesRef.current[nextIdx].name}`);
         }
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     const handleDayAction = useCallback((action: string, idx: number) => {
         const currentDays = daysRef.current;
@@ -252,16 +275,18 @@ export function useScheduleActions({
             }
             pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
+            markDayDirty(newDays[idx].date); // Mark day as dirty
             setHasUnsavedChanges(true);
         }
         if (action === 'copy_prev' && idx > 0) {
             newDays[idx] = { ...newDays[idx], staffShifts: { ...newDays[idx - 1].staffShifts } };
             pushToHistory(); // 📸 Snapshot before change
             setDays(newDays);
+            markDayDirty(newDays[idx].date); // Mark day as dirty
             setHasUnsavedChanges(true);
             toast.success('Copiado del día anterior');
         }
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     const clearDay = useCallback((idx: number) => {
         const currentDays = daysRef.current;
@@ -269,20 +294,41 @@ export function useScheduleActions({
         newDays[idx] = { ...newDays[idx], staffShifts: {} };
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
+        markDayDirty(newDays[idx].date); // Mark day as dirty
         setHasUnsavedChanges(true);
         toast.success('Turnos eliminados');
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     // --- SAVING ---
     const handleSave = useCallback(async () => {
+        const dirtyDates = Array.from(dirtyDaysRef.current);
+
+        // If nothing to save (auto-save already handled it)
+        if (dirtyDates.length === 0) {
+            toast.success('Ya está todo guardado ✓', { duration: 1500 });
+            setHasUnsavedChanges(false);
+            return;
+        }
+
         setSaving(true);
         const toastId = toast.loading('Guardando cambios...');
         try {
             const currentDays = daysRef.current;
-            const payload = currentDays.map(d => ({ date: d.date, status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE', staff_shifts: d.staffShifts }));
-            await availabilityService.upsertSchedule(payload);
-            const totalShifts = currentDays.reduce((acc, d) => acc + Object.keys(d.staffShifts).length, 0);
-            toast.success(`¡Guardado! ${totalShifts} turnos en ${currentDays.length} días`, { id: toastId });
+
+            // Only save dirty days (optimization + race condition safety)
+            const payload = currentDays
+                .filter(d => dirtyDates.includes(d.date))
+                .map(d => ({
+                    date: d.date,
+                    status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE',
+                    staff_shifts: d.staffShifts
+                }));
+
+            await availabilityService.upsertScheduleMerge(payload);
+
+            const totalShifts = payload.reduce((acc, d) => acc + Object.keys(d.staff_shifts).length, 0);
+            toast.success(`¡Guardado! ${totalShifts} turnos en ${payload.length} días`, { id: toastId });
+            dirtyDaysRef.current.clear();
             setHasUnsavedChanges(false);
             clearHistory(); // Clear undo/redo history after successful save
         } catch (error) {
@@ -291,7 +337,7 @@ export function useScheduleActions({
         } finally {
             setSaving(false);
         }
-    }, []);
+    }, [clearHistory]);
 
     const saveAsPattern = useCallback(async () => {
         const patternName = prompt("Nombre de la plantilla:");
@@ -363,9 +409,13 @@ export function useScheduleActions({
 
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
+        // Mark all modified days as dirty
+        newDays.forEach(day => {
+            if (day.status === 'OPEN') markDayDirty(day.date);
+        });
         setHasUnsavedChanges(true); // Generation is a change
         toast.success('¡Horario generado mágicamente! ✨');
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     const clearAllSchedule = useCallback(() => {
         const currentDays = daysRef.current;
@@ -375,9 +425,13 @@ export function useScheduleActions({
         });
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
+        // Mark all cleared days as dirty
+        newDays.forEach(day => {
+            if (day.status === 'OPEN') markDayDirty(day.date);
+        });
         setHasUnsavedChanges(true);
         toast.success('Horario limpiado. Recuerda guardar si quieres hacerlo permanente.');
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     const removeShift = useCallback((dayIdx: number, staffId: string) => {
         const currentDays = daysRef.current;
@@ -386,8 +440,9 @@ export function useScheduleActions({
         delete newDays[dayIdx].staffShifts[staffId];
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
+        markDayDirty(newDays[dayIdx].date); // Mark day as dirty
         setHasUnsavedChanges(true);
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     const applyPattern = useCallback((pattern: any) => {
         const currentDays = daysRef.current;
@@ -396,9 +451,11 @@ export function useScheduleActions({
         );
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
+        // Mark pattern-affected days as dirty
+        newDays.slice(0, pattern.shift_data.length).forEach(day => markDayDirty(day.date));
         setHasUnsavedChanges(true);
         toast.success(`Plantilla "${pattern.name}" aplicada`);
-    }, [setDays, pushToHistory]);
+    }, [setDays, pushToHistory, markDayDirty]);
 
     return {
         saving,

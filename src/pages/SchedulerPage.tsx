@@ -265,10 +265,13 @@ export default function SchedulerPage() {
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
-                                className="ml-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-full font-medium text-sm flex items-center gap-2 transition-colors shadow-sm"
+                                className={`ml-2 px-5 py-2.5 rounded-full font-medium text-sm flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges && !saving
+                                        ? 'bg-amber-500 hover:bg-amber-600 animate-pulse ring-2 ring-amber-300'
+                                        : 'bg-blue-600 hover:bg-blue-700'
+                                    } disabled:opacity-50 text-white`}
                             >
                                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                                <span className="hidden sm:inline">Guardar</span>
+                                <span className="hidden sm:inline">{hasUnsavedChanges ? '¡Guardar!' : 'Guardar'}</span>
                             </button>
                         </div>
                     </div>

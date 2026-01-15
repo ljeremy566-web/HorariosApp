@@ -28,7 +28,8 @@ export const availabilityService = {
     },
 
     /**
-     * Guardar/actualizar horarios (upsert)
+     * Guardar/actualizar horarios (upsert) - LEGACY: sobrescribe todo
+     * @deprecated Use upsertScheduleMerge for concurrent-safe updates
      */
     upsertSchedule: async (schedules: DayScheduleDB[]): Promise<void> => {
         const { error } = await supabase
@@ -36,6 +37,40 @@ export const availabilityService = {
             .upsert(schedules, { onConflict: 'date' });
 
         if (error) throw error;
+    },
+
+    /**
+     * Guardar/actualizar horarios con MERGE (concurrent-safe)
+     * Preserva cambios de otros usuarios usando fusión JSON
+     */
+    upsertScheduleMerge: async (schedules: DayScheduleDB[]): Promise<void> => {
+        const { error } = await supabase.rpc('upsert_schedule_merge', {
+            updates_json: schedules
+        });
+
+        if (error) throw error;
+    },
+
+    /**
+     * Eliminar un turno específico de un día
+     * Necesario porque el merge JSON no puede eliminar claves
+     */
+    removeShift: async (date: string, staffId: string): Promise<void> => {
+        const { data } = await supabase
+            .from('availability_schedule')
+            .select('staff_shifts')
+            .eq('date', date)
+            .single();
+
+        if (data?.staff_shifts) {
+            const updated = { ...data.staff_shifts };
+            delete updated[staffId];
+
+            await supabase
+                .from('availability_schedule')
+                .update({ staff_shifts: updated })
+                .eq('date', date);
+        }
     },
 
     /**
