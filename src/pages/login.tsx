@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../Services/authServices';
-import { Loader2, Mail, Lock, Clock, Calendar, Users, ArrowRight } from 'lucide-react';
+import { Loader2, Clock, Calendar, Users } from 'lucide-react';
 
 export default function Login() {
     const [email, setEmail] = useState('');

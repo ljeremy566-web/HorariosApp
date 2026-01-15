@@ -11,6 +11,7 @@ import AreasPage from './pages/AreasPage';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function App() {
   return (
@@ -28,7 +29,11 @@ function App() {
           <Route path="/app" element={<AppLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="scheduler" element={<SchedulerPage />} />
+            <Route path="scheduler" element={
+              <ErrorBoundary>
+                <SchedulerPage />
+              </ErrorBoundary>
+            } />
             <Route path="staff" element={<StaffPage />} />
             <Route path="templates" element={<TemplatesPage />} />
             <Route path="areas" element={<AreasPage />} />

@@ -31,12 +31,28 @@ export interface AvailabilityConfig {
     holidays: Holiday[];
 }
 
+export type SlotStatus = 'AVAILABLE' | 'OCCUPIED' | 'LOCKED' | 'BREAK' | 'CONFLICT';
+
+export interface TimeSlot {
+    id: string;
+    start: string;        // Formato "HH:MM", ej: "08:00"
+    end: string;          // Formato "HH:MM", ej: "09:00"
+    status: SlotStatus;
+    resourceId?: string;  // ID del docente/aula asignado si está ocupado
+    assignmentId?: string; // ID de la asignación en base de datos
+    meta?: {
+        label?: string;   // Ej: "Matemáticas - Grupo A"
+        color?: string;
+        details?: string;
+    };
+}
+
 export interface DayAvailability {
     date: string; // YYYY-MM-DD
     dayName: string;
     status: DayStatus;
     reason?: string;
-    slots: any[]; // Placeholder for slots logic later
+    slots: TimeSlot[];
 }
 
 // --- Unified Types for Staff, Areas, and Templates ---

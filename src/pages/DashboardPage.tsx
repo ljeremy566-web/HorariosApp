@@ -7,7 +7,7 @@ import {
 import { format, addDays, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
-import type { Staff, ShiftTemplate, TimeRange } from '../types';
+import type { Staff, TimeRange } from '../types';
 
 interface DayPreview {
     date: string;
@@ -192,7 +192,7 @@ export default function DashboardPage() {
     const activeStaff = staffStatuses.filter(s => s.status === 'active');
     const restingStaff = staffStatuses.filter(s => s.status === 'resting');
     const finishedStaff = staffStatuses.filter(s => s.status === 'finished');
-    const pendingStaff = staffStatuses.filter(s => s.status === 'pending');
+
 
     return (
         <div className="max-w-5xl mx-auto p-6 space-y-8">

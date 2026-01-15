@@ -1,0 +1,5 @@
+src/components/common/ConfirmModal.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/hooks/useHistory.ts(3,28): error TS6133: 'T' is declared but its value is never read.
+src/hooks/useHistory.ts(59,11): error TS6133: 'setStateWithoutHistory' is declared but its value is never read.
+src/pages/DashboardPage.tsx(10,22): error TS6196: 'ShiftTemplate' is declared but never used.
+src/pages/DashboardPage.tsx(195,11): error TS6133: 'pendingStaff' is declared but its value is never read.

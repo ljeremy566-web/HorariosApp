@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
-interface UseHistoryOptions<T> {
+interface UseHistoryOptions {
     maxHistorySize?: number;
 }
 
 interface UseHistoryReturn<T> {
     state: T;
     setState: (newState: T) => void;
+    setStateWithoutHistory: (newState: T) => void;
     undo: () => void;
     redo: () => void;
     canUndo: boolean;
@@ -21,7 +22,7 @@ interface UseHistoryReturn<T> {
  */
 export function useHistory<T>(
     initialState: T,
-    options: UseHistoryOptions<T> = {}
+    options: UseHistoryOptions = {}
 ): UseHistoryReturn<T> {
     const { maxHistorySize = 50 } = options;
 
@@ -117,6 +118,7 @@ export function useHistory<T>(
     return {
         state: present,
         setState,
+        setStateWithoutHistory,
         undo,
         redo,
         canUndo: past.length > 0,
@@ -132,8 +134,8 @@ export function useHistory<T>(
 export function useHistorySync<T>(
     externalState: T,
     setExternalState: (state: T) => void,
-    options: UseHistoryOptions<T> = {}
-): Omit<UseHistoryReturn<T>, 'state' | 'setState'> & { pushToHistory: () => void } {
+    options: UseHistoryOptions = {}
+): Omit<UseHistoryReturn<T>, 'state' | 'setState' | 'setStateWithoutHistory'> & { pushToHistory: () => void } {
     const { maxHistorySize = 50 } = options;
 
     const [past, setPast] = useState<T[]>([]);
