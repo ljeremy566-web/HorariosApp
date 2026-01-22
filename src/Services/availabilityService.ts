@@ -85,5 +85,14 @@ export const availabilityService = {
 
         if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
         return data;
+    },
+
+    deleteAllSchedules: async (date: string) => {
+        const { error } = await supabase
+            .from('availability_schedule')
+            .delete()
+            .eq('date', date);
+
+        if (error) throw error;
     }
 };

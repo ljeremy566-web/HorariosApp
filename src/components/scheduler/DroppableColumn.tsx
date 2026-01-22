@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { Lock, Unlock, Copy, Trash2 } from 'lucide-react';
-import { isSameDay } from 'date-fns';
+import { isSameDay, isBefore, startOfDay } from 'date-fns';
 import type { Staff, Area, ShiftTemplate } from '../../types';
 import type { DaySchedule } from '../../utils/schedulerUtils';
 import { getShiftData } from '../../utils/schedulerUtils';
@@ -14,104 +14,108 @@ interface DroppableColumnProps {
     templates: ShiftTemplate[];
     areas: Area[];
     viewMode: 'edit' | 'preview';
-    selectedAreaId: string; // 'ALL' o el ID del área filtrada
+    selectedAreaId: string;
     onShiftClick: (idx: number, sId: string) => void;
     onRemoveShift: (idx: number, sId: string) => void;
     onDayAction: (action: 'copy_prev' | 'clear' | 'toggle', idx: number) => void;
 }
 
-// --- COMPONENTE DROPPABLE (COLUMNA DE DÍA) - Google Calendar Style ---
-export const DroppableColumn = memo(function DroppableColumn({ day, dayIdx, staffList, templates, areas, viewMode, selectedAreaId, onShiftClick, onRemoveShift, onDayAction }: DroppableColumnProps) {
+export const DroppableColumn = memo(function DroppableColumn({
+    day, dayIdx, staffList, templates, areas, viewMode, selectedAreaId,
+    onShiftClick, onRemoveShift, onDayAction
+}: DroppableColumnProps) {
     const { isOver, setNodeRef } = useDroppable({ id: `day-${day.date}`, data: { dayIdx, day } });
 
+    // Filtrado de turnos (Lógica original conservada)
     const visibleAssignments = useMemo(() => {
         return Object.entries(day.staffShifts).map(([staffId, shiftValue]) => {
             const shiftData = getShiftData(shiftValue);
             const staff = staffList.find((s: Staff) => s.id === staffId);
             const template = templates.find((t: ShiftTemplate) => t.id === shiftData.templateId);
-            // Obtener el área del empleado para usar su color
             const staffArea = staff?.area_ids?.[0] ? areas.find(a => a.id === staff.area_ids![0]) : null;
-            return { staffId, staff, template, staffArea, shiftAreaId: shiftData.areaId };
+            return { staffId, staff, template, staffArea, shiftAreaId: shiftData.areaId, shiftData };
         }).filter(a => {
-            // Filtrar: solo mostrar si el empleado Y el template existen
             if (!a.staff || !a.template) return false;
-
-            // Si estamos en modo "Todos", mostrar todos los turnos
             if (selectedAreaId === 'ALL') return true;
-
-            // Si el turno fue creado sin área específica (datos antiguos), 
-            // mostrarlo solo si el empleado pertenece al área filtrada
-            if (!a.shiftAreaId) {
-                return a.staff.area_ids?.includes(selectedAreaId) ?? false;
-            }
-
-            // Mostrar solo si el turno fue creado en el área seleccionada
+            if (!a.shiftAreaId) return a.staff.area_ids?.includes(selectedAreaId) ?? false;
             return a.shiftAreaId === selectedAreaId;
         });
     }, [day.staffShifts, staffList, templates, areas, selectedAreaId]);
 
-    const isToday = isSameDay(new Date(day.date + 'T00:00:00'), new Date());
+    // LÓGICA TEMPORAL (Pasado / Presente / Futuro)
+    const columnDate = startOfDay(new Date(day.date + 'T00:00:00'));
+    const today = startOfDay(new Date());
+
+    const isToday = isSameDay(columnDate, today);
+    const isPast = isBefore(columnDate, today);
     const isClosed = day.status !== 'OPEN';
+
+    // Clases dinámicas según el tiempo
+    let bgClass = 'bg-white';
+    if (isClosed) bgClass = 'bg-slate-50/80';
+    else if (isOver) bgClass = 'bg-blue-50 ring-2 ring-blue-200 z-20';
+    else if (isPast) bgClass = 'bg-slate-50/60';
+
+    // Borde especial para HOY
+    const borderClass = isToday
+        ? 'ring-2 ring-blue-500 ring-inset shadow-lg z-10'
+        : 'border-r border-slate-100';
 
     return (
         <div
             ref={setNodeRef}
             className={`
-                min-w-[160px] flex-1 flex flex-col h-full transition-all duration-200
-                ${isClosed ? 'bg-slate-50/80' : (isOver ? 'bg-blue-50/50' : 'bg-white')}
+                min-w-[170px] flex-1 flex flex-col h-full transition-all duration-200
+                ${bgClass} ${borderClass}
             `}
         >
-            {/* Header del día - Google Calendar style */}
+            {/* HEADER DEL DÍA */}
             <div className={`
-                sticky top-0 z-10 p-3 text-center transition-colors border-b border-slate-100
-                ${isToday ? 'bg-white' : 'bg-white'} 
-                ${isClosed ? 'opacity-50' : ''}
+                sticky top-0 z-10 p-2 text-center transition-colors border-b
+                ${isToday ? 'bg-blue-50/90 border-blue-200 backdrop-blur-sm' : 'bg-white/95 border-slate-100'} 
+                ${isClosed || isPast ? 'opacity-70' : ''}
             `}>
-                <div className={`text-[11px] font-medium uppercase tracking-wide mb-2 ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>
-                    {day.dayName.substring(0, 3)}
+                <div className="flex justify-between items-center px-1 mb-1">
+                    <span className={`text-[11px] font-bold uppercase tracking-wide ${isToday ? 'text-blue-700' : 'text-slate-400'}`}>
+                        {day.dayName.substring(0, 3)}
+                    </span>
+                    {/* Badge de estado temporal */}
+                    {isToday && <span className="text-[9px] bg-blue-500 text-white px-1 rounded font-bold">HOY</span>}
+                    {isPast && !isClosed && <span className="text-[9px] text-slate-400 font-medium">Pasado</span>}
                 </div>
+
                 <div className={`
-                    text-xl font-normal inline-flex items-center justify-center w-10 h-10 rounded-full transition-colors
-                    ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100'}
+                    text-xl font-normal inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors mx-auto
+                    ${isToday ? 'bg-blue-600 text-white shadow-md' : 'text-slate-700'}
                 `}>
                     {day.dayNumber}
                 </div>
 
-                {/* Acciones del día - aparecen en hover */}
+                {/* BOTONES DE ACCIÓN (Hover) */}
                 {viewMode === 'edit' && (
-                    <div className="flex justify-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                            onClick={() => onDayAction('toggle', dayIdx)}
-                            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                            title={isClosed ? 'Abrir día' : 'Cerrar día'}
-                        >
-                            {isClosed ? <Unlock size={14} /> : <Lock size={14} />}
+                    <div className="flex justify-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => onDayAction('toggle', dayIdx)} className="p-1 hover:bg-slate-200 rounded text-slate-400">
+                            {isClosed ? <Unlock size={12} /> : <Lock size={12} />}
                         </button>
-                        {dayIdx > 0 && !isClosed && (
-                            <button
-                                onClick={() => onDayAction('copy_prev', dayIdx)}
-                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                                title="Copiar día anterior"
-                            >
-                                <Copy size={14} />
-                            </button>
+                        {!isClosed && (
+                            <>
+                                <button onClick={() => onDayAction('copy_prev', dayIdx)} className="p-1 hover:bg-slate-200 rounded text-slate-400" title="Copiar anterior">
+                                    <Copy size={12} />
+                                </button>
+                                <button onClick={() => onDayAction('clear', dayIdx)} className="p-1 hover:bg-rose-100 rounded text-rose-400" title="Limpiar">
+                                    <Trash2 size={12} />
+                                </button>
+                            </>
                         )}
-                        <button
-                            onClick={() => onDayAction('clear', dayIdx)}
-                            className="p-1.5 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
-                            title="Limpiar día"
-                        >
-                            <Trash2 size={14} />
-                        </button>
                     </div>
                 )}
             </div>
 
-            {/* Body - Lista de turnos */}
+            {/* BODY - LISTA DE TURNOS */}
             <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
                 {!isClosed ? (
                     visibleAssignments.length > 0 ? (
-                        visibleAssignments.map(({ staffId, staff, template, staffArea }: any) => (
+                        visibleAssignments.map(({ staffId, staff, template, staffArea, shiftData }: any) => (
                             <DraggableAssignedShift
                                 key={staffId}
                                 staff={staff}
@@ -119,29 +123,41 @@ export const DroppableColumn = memo(function DroppableColumn({ day, dayIdx, staf
                                 staffArea={staffArea}
                                 dayIdx={dayIdx}
                                 viewMode={viewMode}
+                                shiftData={shiftData}
                                 onShiftClick={onShiftClick}
                                 onRemoveShift={onRemoveShift}
                             />
                         ))
                     ) : (
+                        // Estado Vacío Inteligente
                         viewMode === 'edit' && (
-                            <div className="h-20 flex items-center justify-center text-slate-300 border border-dashed border-slate-200 rounded-lg">
-                                <span className="text-[11px]">Vacío</span>
+                            <div className={`
+                                h-full flex flex-col items-center justify-center border-2 border-dashed rounded-lg
+                                ${isPast ? 'border-slate-100' : 'border-slate-200'}
+                            `}>
+                                {isPast ? (
+                                    <div className="text-center opacity-40">
+                                        <span className="text-xl">🤷‍♂️</span>
+                                        <p className="text-[10px] mt-1 font-medium">Sin registros</p>
+                                    </div>
+                                ) : (
+                                    <span className="text-[10px] text-slate-300">Vacío</span>
+                                )}
                             </div>
                         )
                     )
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                        <Lock size={20} className="mb-1" />
-                        <span className="text-[10px] font-medium uppercase tracking-wider">Cerrado</span>
+                    <div className="flex flex-col items-center justify-center h-full text-slate-300 opacity-60">
+                        <Lock size={16} className="mb-1" />
+                        <span className="text-[9px] uppercase tracking-wider">Cerrado</span>
                     </div>
                 )}
             </div>
 
-            {/* Footer - Contador */}
-            <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/50 text-center">
-                <span className={`text-[10px] font-medium uppercase tracking-wide ${visibleAssignments.length > 0 ? 'text-slate-500' : 'text-slate-300'}`}>
-                    {visibleAssignments.length} {visibleAssignments.length === 1 ? 'asignado' : 'asignados'}
+            {/* Footer simple */}
+            <div className="py-1 border-t border-slate-100 text-center bg-slate-50/30">
+                <span className="text-[9px] text-slate-400 font-medium">
+                    {visibleAssignments.length} asignados
                 </span>
             </div>
         </div>

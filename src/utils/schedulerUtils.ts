@@ -1,9 +1,11 @@
 
 // --- TYPES ---
-// Estructura de un turno asignado: guarda el template Y el área en que se creó
+// Estructura de un turno asignado: guarda el template, área, y notas de incidencias
 export interface ShiftAssignment {
     templateId: string;
     areaId: string | null; // null = asignado en modo "Todos"
+    note?: string;           // Ej: "Cubriendo a Pedro"
+    is_substitution?: boolean; // Para marcarlo con estilo diferente (borde amarillo)
 }
 
 export interface DaySchedule {

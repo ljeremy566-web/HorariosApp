@@ -40,6 +40,9 @@ export interface TimeSlot {
     status: SlotStatus;
     resourceId?: string;  // ID del docente/aula asignado si está ocupado
     assignmentId?: string; // ID de la asignación en base de datos
+    // Campos para notas e incidencias
+    note?: string;           // Ej: "Cubriendo a Pedro"
+    is_substitution?: boolean; // Para marcarlo con estilo diferente
     meta?: {
         label?: string;   // Ej: "Matemáticas - Grupo A"
         color?: string;

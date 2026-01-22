@@ -417,21 +417,37 @@ export function useScheduleActions({
         toast.success('¡Horario generado mágicamente! ✨');
     }, [setDays, pushToHistory, markDayDirty]);
 
-    const clearAllSchedule = useCallback(() => {
+    const clearAllSchedule = useCallback(async () => {
         const currentDays = daysRef.current;
         const newDays = currentDays.map(day => {
             if (day.status !== 'OPEN') return day;
             return { ...day, staffShifts: {} };
         });
+
         pushToHistory(); // 📸 Snapshot before change
         setDays(newDays);
-        // Mark all cleared days as dirty
-        newDays.forEach(day => {
-            if (day.status === 'OPEN') markDayDirty(day.date);
-        });
-        setHasUnsavedChanges(true);
-        toast.success('Horario limpiado. Recuerda guardar si quieres hacerlo permanente.');
-    }, [setDays, pushToHistory, markDayDirty]);
+
+        // Días abiertos a limpiar
+        const clearedDays = newDays.filter(day => day.status === 'OPEN');
+
+        // Guardar inmediatamente usando DELETE real
+        const toastId = toast.loading('Limpiando horario...');
+        try {
+            // Eliminar cada día de la base de datos
+            await Promise.all(
+                clearedDays.map(d => availabilityService.deleteAllSchedules(d.date))
+            );
+
+            dirtyDaysRef.current.clear();
+            setHasUnsavedChanges(false);
+            clearHistory();
+            toast.success(`¡Horario limpiado! ${clearedDays.length} días borrados`, { id: toastId });
+        } catch (error) {
+            console.error('Error limpiando horario:', error);
+            toast.error('Error al limpiar el horario', { id: toastId });
+            setHasUnsavedChanges(true);
+        }
+    }, [setDays, pushToHistory, clearHistory]);
 
     const removeShift = useCallback((dayIdx: number, staffId: string) => {
         const currentDays = daysRef.current;

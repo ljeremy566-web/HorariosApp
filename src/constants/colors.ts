@@ -118,13 +118,14 @@ export const SHIFT_COLORS: Record<string, {
     bg: string;
     text: string;
     accent: string;
+    border: string;
 }> = {
-    blue: { bg: 'bg-blue-100/80', text: 'text-blue-900', accent: 'bg-blue-500' },
-    orange: { bg: 'bg-orange-100/80', text: 'text-orange-900', accent: 'bg-orange-500' },
-    purple: { bg: 'bg-violet-100/80', text: 'text-violet-900', accent: 'bg-violet-500' },
-    green: { bg: 'bg-emerald-100/80', text: 'text-emerald-900', accent: 'bg-emerald-500' },
-    red: { bg: 'bg-rose-100/80', text: 'text-rose-900', accent: 'bg-rose-500' },
-    cyan: { bg: 'bg-cyan-100/80', text: 'text-cyan-900', accent: 'bg-cyan-500' },
+    blue: { bg: 'bg-blue-100/80', text: 'text-blue-900', accent: 'bg-blue-500', border: 'border-blue-300' },
+    orange: { bg: 'bg-orange-100/80', text: 'text-orange-900', accent: 'bg-orange-500', border: 'border-orange-300' },
+    purple: { bg: 'bg-violet-100/80', text: 'text-violet-900', accent: 'bg-violet-500', border: 'border-violet-300' },
+    green: { bg: 'bg-emerald-100/80', text: 'text-emerald-900', accent: 'bg-emerald-500', border: 'border-emerald-300' },
+    red: { bg: 'bg-rose-100/80', text: 'text-rose-900', accent: 'bg-rose-500', border: 'border-rose-300' },
+    cyan: { bg: 'bg-cyan-100/80', text: 'text-cyan-900', accent: 'bg-cyan-500', border: 'border-cyan-300' },
 };
 
 // Opciones de colores para selectores (dropdown/picker)

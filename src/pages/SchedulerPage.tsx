@@ -12,10 +12,13 @@ import {
     Lock, Unlock, Save, Loader2,
     User, ChevronLeft, ChevronRight,
     BookmarkPlus, DownloadCloud, Eraser, Palette, Sparkles, Clock, Check,
-    Undo2, Redo2
+    Undo2, Redo2, Share2
 } from 'lucide-react';
-import { format, addDays } from 'date-fns';
+import { format, getDaysInMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { toPng } from 'html-to-image';
+import download from 'downloadjs';
+import toast from 'react-hot-toast';
 
 import { AREA_COLORS, SHIFT_COLORS, getAreaColor } from '../constants/colors';
 import type { Area } from '../types';
@@ -44,8 +47,8 @@ export default function SchedulerPage() {
         areas,
         templates,
         currentDate,
-        daysToShow,
-        setDaysToShow,
+        viewSpan,
+        setViewSpan,
         sundaysBlocked,
         toggleSundays,
         navigateDate,
@@ -138,8 +141,8 @@ export default function SchedulerPage() {
 
         setConfirmDialog({
             isOpen: true,
-            title: 'Limpiar horario completo',
-            message: '¿Estás seguro de que quieres LIMPIAR todas las asignaciones visibles? Esta acción no se puede deshacer.',
+            title: '⚠️ BORRAR TODO EL HORARIO',
+            message: '🚨 ATENCIÓN: Esta acción ELIMINARÁ PERMANENTEMENTE todos los turnos asignados de la quincena actual. Los datos se borrarán de la base de datos y NO se pueden recuperar. ¿Estás completamente seguro?',
             variant: 'danger',
             onConfirm: () => {
                 clearAllSchedule();
@@ -148,8 +151,8 @@ export default function SchedulerPage() {
         });
     }, [days, clearAllSchedule]);
 
-    const changeViewMode = useCallback((mode: 15 | 30) => {
-        if (mode === daysToShow) return;
+    const changeViewSpan = useCallback((mode: 15 | 30) => {
+        if (mode === viewSpan) return;
         if (hasUnsavedChanges) {
             setConfirmDialog({
                 isOpen: true,
@@ -159,17 +162,74 @@ export default function SchedulerPage() {
                 onConfirm: () => {
                     setConfirmDialog(prev => ({ ...prev, isOpen: false }));
                     setHasUnsavedChanges(false);
-                    setDaysToShow(mode);
+                    setViewSpan(mode);
                 }
             });
         } else {
-            setDaysToShow(mode);
+            setViewSpan(mode);
         }
-    }, [daysToShow, hasUnsavedChanges, setDaysToShow, setHasUnsavedChanges]);
+    }, [viewSpan, hasUnsavedChanges, setViewSpan, setHasUnsavedChanges]);
+
+    // LÓGICA DE TÍTULO DE PERIODO
+    const periodLabel = useMemo(() => {
+        if (viewSpan === 30) return `${format(currentDate, 'dd MMM')} - 30 días`;
+
+        const day = currentDate.getDate();
+        const monthName = format(currentDate, 'MMMM', { locale: es });
+        const daysInMonthTotal = getDaysInMonth(currentDate);
+
+        if (day === 1) return `1ª Quincena (01 - 15 ${monthName})`;
+        return `2ª Quincena (16 - ${daysInMonthTotal} ${monthName})`;
+    }, [currentDate, viewSpan]);
 
     const toggleTemplateSelection = useCallback((templateId: string) => {
         setActiveTemplateId(prev => prev === templateId ? null : templateId);
     }, []);
+
+    // Exportar como imagen
+    const handleExportImage = useCallback(async () => {
+        if (!gridContainerRef.current) return;
+
+        const loadingId = toast.loading('Generando imagen del horario...');
+        try {
+            const container = gridContainerRef.current;
+            // Obtener el elemento hijo que contiene todo el contenido del grid
+            const gridContent = container.firstElementChild as HTMLElement;
+
+            if (!gridContent) {
+                toast.error('No se encontró contenido para exportar', { id: loadingId });
+                return;
+            }
+
+            // Capturar el tamaño completo del contenido (incluyendo scroll)
+            const fullWidth = container.scrollWidth;
+            const fullHeight = container.scrollHeight;
+
+            const dataUrl = await toPng(gridContent, {
+                backgroundColor: '#ffffff',
+                pixelRatio: 2,
+                cacheBust: true,
+                width: fullWidth,
+                height: fullHeight,
+                style: {
+                    // Asegurar que se renderice todo el contenido
+                    transform: 'none',
+                    overflow: 'visible',
+                }
+            });
+
+            const areaName = selectedAreaId === 'ALL'
+                ? 'General'
+                : areas.find(a => a.id === selectedAreaId)?.name || 'Area';
+            const dateStr = format(currentDate, 'yyyy-MM-dd');
+
+            download(dataUrl, `Horario_${areaName}_${dateStr}.png`);
+            toast.success('Imagen descargada correctamente', { id: loadingId });
+        } catch (error) {
+            console.error('Error exporting image:', error);
+            toast.error('Error al exportar la imagen', { id: loadingId });
+        }
+    }, [gridContainerRef, selectedAreaId, areas, currentDate]);
 
     if (loading) return (
         <div className="h-full flex items-center justify-center bg-white">
@@ -201,12 +261,12 @@ export default function SchedulerPage() {
 
                             {/* Título */}
                             <div>
-                                <h1 className="text-xl font-normal text-slate-800">
-                                    {format(currentDate, 'MMMM yyyy', { locale: es })}
+                                <h1 className="text-lg font-bold text-slate-800 capitalize flex items-center gap-2">
+                                    {periodLabel}
+                                    <span className="text-xs font-normal text-slate-400 border border-slate-200 px-2 py-0.5 rounded-full bg-slate-50">
+                                        {format(currentDate, 'yyyy')}
+                                    </span>
                                 </h1>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    {format(currentDate, 'dd')} - {format(addDays(currentDate, daysToShow - 1), 'dd MMM')}
-                                </p>
                             </div>
                         </div>
 
@@ -260,14 +320,24 @@ export default function SchedulerPage() {
                                         <Eraser size={18} className="group-hover:animate-pulse" />
                                         <span className="hidden sm:inline">Limpiar</span>
                                     </button>
+
+                                    {/* BOTÓN EXPORTAR IMAGEN */}
+                                    <button
+                                        onClick={handleExportImage}
+                                        className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-xl font-medium transition-all shadow-lg shadow-gray-200"
+                                        title={`Exportar ${selectedAreaId !== 'ALL' ? 'área' : 'horario completo'} como imagen`}
+                                    >
+                                        <Share2 size={18} />
+                                        <span className="hidden sm:inline">Exportar</span>
+                                    </button>
                                 </>
                             )}
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
                                 className={`ml-2 px-5 py-2.5 rounded-full font-medium text-sm flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges && !saving
-                                        ? 'bg-amber-500 hover:bg-amber-600 animate-pulse ring-2 ring-amber-300'
-                                        : 'bg-blue-600 hover:bg-blue-700'
+                                    ? 'bg-amber-500 hover:bg-amber-600 animate-pulse ring-2 ring-amber-300'
+                                    : 'bg-blue-600 hover:bg-blue-700'
                                     } disabled:opacity-50 text-white`}
                             >
                                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
@@ -344,19 +414,19 @@ export default function SchedulerPage() {
 
                         <div className="w-px h-6 bg-slate-200"></div>
 
-                        {/* Vista 15/30 días */}
+                        {/* Vista Quincenal/Mensual */}
                         <div className="bg-white rounded-full p-1 shadow-sm border border-slate-200 flex">
                             <button
-                                onClick={() => changeViewMode(15)}
-                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${daysToShow === 15 ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                                onClick={() => changeViewSpan(15)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${viewSpan === 15 ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                             >
-                                15 Días
+                                Quincenal
                             </button>
                             <button
-                                onClick={() => changeViewMode(30)}
-                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${daysToShow === 30 ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                                onClick={() => changeViewSpan(30)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${viewSpan === 30 ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                             >
-                                30 Días
+                                Mensual
                             </button>
                         </div>
 
