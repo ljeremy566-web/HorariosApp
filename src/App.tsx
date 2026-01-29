@@ -39,11 +39,6 @@ function App() {
             <Route path="areas" element={<AreasPage />} />
           </Route>
         </Route>
-        <Route path="scheduler" element={
-          <ErrorBoundary>
-            <SchedulerPage />
-          </ErrorBoundary>
-        } />
 
         {/* Catch all */}
         <Route path="/" element={<Navigate to="/app" replace />} />

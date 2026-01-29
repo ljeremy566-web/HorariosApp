@@ -78,7 +78,9 @@ export function useScheduleActions({
                     }));
 
                 if (payload.length > 0) {
-                    await availabilityService.upsertScheduleMerge(payload);
+                    // FIX BUG 1: Usar upsertSchedule (reemplazo completo) en lugar de merge
+                    // Esto asegura que los turnos borrados se eliminen correctamente
+                    await availabilityService.upsertSchedule(payload);
                 }
 
                 dirtyDaysRef.current.clear();
@@ -105,49 +107,13 @@ export function useScheduleActions({
         };
     }, [days, hasUnsavedChanges]); // Add 'days' to reset timer on each change
 
-    // --- CONFLICT DETECTION: Check if staff has overlapping shifts on the same day ---
-    const checkTimeConflict = useCallback((staffId: string, targetDayIdx: number, newTemplateId: string): boolean => {
-        const currentDays = daysRef.current;
-        const targetDay = currentDays[targetDayIdx];
-        const templates = templatesRef.current;
-
-        // Get the new shift's time range
-        const newTemplate = templates.find(t => t.id === newTemplateId);
-        if (!newTemplate?.schedule_config?.length) return false;
-
-        const newStart = newTemplate.schedule_config[0].start;
-        const newEnd = newTemplate.schedule_config[newTemplate.schedule_config.length - 1].end;
-
-        // Check all existing shifts on this day for the same staff member
-        // Staff with multiple areas could be assigned multiple times
-        for (const [assignedStaffId, shiftValue] of Object.entries(targetDay.staffShifts)) {
-            if (assignedStaffId !== staffId) continue;
-
-            const shiftData = getShiftData(shiftValue);
-            const existingTemplate = templates.find(t => t.id === shiftData.templateId);
-
-            if (!existingTemplate?.schedule_config?.length) continue;
-
-            const existingStart = existingTemplate.schedule_config[0].start;
-            const existingEnd = existingTemplate.schedule_config[existingTemplate.schedule_config.length - 1].end;
-
-            // Check for time overlap: (StartA < EndB) && (EndA > StartB)
-            const timeToMinutes = (time: string): number => {
-                const [hours, minutes] = time.split(':').map(Number);
-                return hours * 60 + minutes;
-            };
-
-            const newStartMins = timeToMinutes(newStart);
-            const newEndMins = timeToMinutes(newEnd);
-            const existingStartMins = timeToMinutes(existingStart);
-            const existingEndMins = timeToMinutes(existingEnd);
-
-            if (newStartMins < existingEndMins && newEndMins > existingStartMins) {
-                return true; // Conflict detected
-            }
-        }
-
-        return false; // No conflict
+    // --- CONFLICT DETECTION: Deshabilitado ---
+    // FIX BUG 2: Como solo se permite 1 turno por día/persona, esta validación
+    // es redundante y bloquea la edición de turnos existentes.
+    // Si necesitas validar descansos entre días, implementa esa lógica aquí.
+    const checkTimeConflict = useCallback((_staffId: string, _targetDayIdx: number, _newTemplateId: string): boolean => {
+        // Deshabilitado: retorna false siempre para permitir edición
+        return false;
     }, []);
 
     // --- DRAG & DROP LOGIC ---
@@ -175,7 +141,12 @@ export function useScheduleActions({
             newDays[sourceDayIdx] = { ...newDays[sourceDayIdx], staffShifts: { ...newDays[sourceDayIdx].staffShifts } };
             delete newDays[sourceDayIdx].staffShifts[staffId];
 
-            newDays[targetDayIdx] = { ...newDays[targetDayIdx], staffShifts: { ...newDays[targetDayIdx].staffShifts } };
+            // FIX BUG 4: Verificar si el empleado ya tiene turno en el día destino
+            if (newDays[targetDayIdx].staffShifts[staffId]) {
+                toast.error(`Error: ${draggedStaff?.full_name || 'Empleado'} ya tiene turno el día ${targetDay.dayNumber}`);
+                return;
+            }
+
             newDays[targetDayIdx].staffShifts[staffId] = existingShift;
 
             pushToHistory(); // 📸 Snapshot before change
@@ -324,7 +295,8 @@ export function useScheduleActions({
                     staff_shifts: d.staffShifts
                 }));
 
-            await availabilityService.upsertScheduleMerge(payload);
+            // FIX BUG 1: Usar upsertSchedule (reemplazo completo) en lugar de merge
+            await availabilityService.upsertSchedule(payload);
 
             const totalShifts = payload.reduce((acc, d) => acc + Object.keys(d.staff_shifts).length, 0);
             toast.success(`¡Guardado! ${totalShifts} turnos en ${payload.length} días`, { id: toastId });
@@ -339,9 +311,13 @@ export function useScheduleActions({
         }
     }, [clearHistory]);
 
-    const saveAsPattern = useCallback(async () => {
-        const patternName = prompt("Nombre de la plantilla:");
-        if (!patternName) return;
+    // saveAsPattern ahora recibe el nombre como parámetro
+    // El componente que llama debe manejar el modal/input para obtener el nombre
+    const saveAsPattern = useCallback(async (patternName: string) => {
+        if (!patternName?.trim()) {
+            toast.error('El nombre de la plantilla es requerido');
+            return;
+        }
         setSaving(true);
 
         const currentDays = daysRef.current;
@@ -361,7 +337,7 @@ export function useScheduleActions({
 
         try {
             await patternService.create({
-                name: patternName,
+                name: patternName.trim(),
                 area: selectedAreaIdRef.current === 'ALL' ? 'General' : areasRef.current.find(a => a.id === selectedAreaIdRef.current)?.name || 'General',
                 shift_data: shiftsToSave
             });
@@ -430,13 +406,17 @@ export function useScheduleActions({
         // Días abiertos a limpiar
         const clearedDays = newDays.filter(day => day.status === 'OPEN');
 
-        // Guardar inmediatamente usando DELETE real
+        // FIX BUG 3: Usar upsertSchedule con staff_shifts vacío en lugar de DELETE
+        // Esto preserva el status del día (OPEN/CLOSED)
         const toastId = toast.loading('Limpiando horario...');
         try {
-            // Eliminar cada día de la base de datos
-            await Promise.all(
-                clearedDays.map(d => availabilityService.deleteAllSchedules(d.date))
-            );
+            const payload = clearedDays.map(d => ({
+                date: d.date,
+                status: d.status as 'OPEN' | 'CLOSED' | 'DISABLED_BY_RULE',
+                staff_shifts: {} // Vacía los turnos pero mantiene el registro
+            }));
+
+            await availabilityService.upsertSchedule(payload);
 
             dirtyDaysRef.current.clear();
             setHasUnsavedChanges(false);

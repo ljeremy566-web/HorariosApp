@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { format, getDaysInMonth, setDate } from 'date-fns';
+import { format, getDaysInMonth, setDate, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 import { staffService, areaService, templateService, availabilityService } from '../Services';
@@ -42,9 +42,37 @@ export function useSchedulerData() {
         }
     }, [currentDate, viewSpan]);
 
+    const loadData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [staffData, areasData, tmplData] = await Promise.all([
+                staffService.getAll(),
+                areaService.getAll(),
+                templateService.getAll()
+            ]);
+
+            setStaffList(staffData);
+            setAreas(areasData);
+            setTemplates(tmplData);
+
+            // Calcular rango de fechas para la API
+            const startStr = format(currentDate, 'yyyy-MM-dd');
+            const endDate = addDays(currentDate, daysToShow - 1);
+            const endStr = format(endDate, 'yyyy-MM-dd');
+
+            const schedule = await availabilityService.getByDateRange(startStr, endStr);
+            generateGrid(schedule, currentDate, daysToShow);
+        } catch (e) {
+            console.error(e);
+            toast.error('Error cargando datos');
+        } finally {
+            setLoading(false);
+        }
+    }, [currentDate, daysToShow, sundaysBlocked]);
+
     useEffect(() => {
         loadData();
-    }, [currentDate, daysToShow, sundaysBlocked]);
+    }, [loadData]);
 
     // Scroll automático al día HOY
     useEffect(() => {
@@ -60,42 +88,17 @@ export function useSchedulerData() {
         }
     }, [loading, days.length]); // Se ejecuta cuando cargan los días
 
-    const loadData = async () => {
-        setLoading(true);
-        try {
-            const [staffData, areasData, tmplData] = await Promise.all([
-                staffService.getAll(),
-                areaService.getAll(),
-                templateService.getAll()
-            ]);
 
-            setStaffList(staffData);
-            setAreas(areasData);
-            setTemplates(tmplData);
-
-            // Calcular rango de fechas para la API
-            const startStr = format(currentDate, 'yyyy-MM-dd');
-            const endDate = new Date(currentDate);
-            endDate.setDate(currentDate.getDate() + daysToShow - 1);
-            const endStr = format(endDate, 'yyyy-MM-dd');
-
-            const schedule = await availabilityService.getByDateRange(startStr, endStr);
-            generateGrid(schedule, currentDate, daysToShow);
-        } catch (e) {
-            console.error(e);
-            toast.error('Error cargando datos');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const generateGrid = (dbData: any[], startDate: Date, count: number) => {
+        // Crear mapa de búsqueda rápida O(1) en lugar de usar .find() O(N) en cada iteración
+        const scheduleMap = new Map(dbData?.map((s: any) => [s.date, s]) || []);
+
         const newDays: DaySchedule[] = [];
         for (let i = 0; i < count; i++) {
-            const d = new Date(startDate);
-            d.setDate(startDate.getDate() + i);
+            const d = addDays(startDate, i);
             const dateStr = format(d, 'yyyy-MM-dd');
-            const saved = dbData?.find((s: any) => s.date === dateStr);
+            const saved = scheduleMap.get(dateStr); // O(1) lookup
             const isSunday = d.getDay() === 0;
 
             newDays.push({

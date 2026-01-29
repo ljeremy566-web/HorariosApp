@@ -25,6 +25,7 @@ import type { Area } from '../types';
 
 // Components
 import { ConfirmModal } from '../components/common/ConfirmModal';
+import { Modal } from '../components/Modal';
 import { DraggableStaff } from '../components/scheduler/DraggableStaff';
 import { DroppableColumn } from '../components/scheduler/DroppableColumn';
 import { PatternModal } from '../components/scheduler/PatternModal';
@@ -73,6 +74,10 @@ export default function SchedulerPage() {
     const [confirmDialog, setConfirmDialog] = useState<{
         isOpen: boolean; title: string; message: string; onConfirm: () => void; variant?: 'default' | 'danger';
     }>({ isOpen: false, title: '', message: '', onConfirm: () => { } });
+
+    // Estado para el modal de guardar como plantilla (reemplaza prompt())
+    const [showSavePatternModal, setShowSavePatternModal] = useState(false);
+    const [patternNameInput, setPatternNameInput] = useState('');
 
     // Actions hook
     const {
@@ -297,7 +302,7 @@ export default function SchedulerPage() {
                                     <button onClick={() => setShowPatternModal(true)} title="Cargar plantilla" className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
                                         <DownloadCloud size={20} />
                                     </button>
-                                    <button onClick={saveAsPattern} title="Guardar como plantilla" className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+                                    <button onClick={() => { setPatternNameInput(''); setShowSavePatternModal(true); }} title="Guardar como plantilla" className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
                                         <BookmarkPlus size={20} />
                                     </button>
                                     <button onClick={() => setShowGenerator(true)} title="Generador Mágico" className="flex items-center gap-2 bg-[#c2e7ff] text-[#001d35] hover:bg-[#b3dffc] hover:shadow-md px-4 py-2 rounded-xl font-medium transition-all">
@@ -698,6 +703,53 @@ export default function SchedulerPage() {
                     onConfirm={confirmDialog.onConfirm}
                     onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
                 />
+
+                {/* Modal para guardar como plantilla (reemplaza prompt()) */}
+                <Modal
+                    isOpen={showSavePatternModal}
+                    onClose={() => setShowSavePatternModal(false)}
+                    title="Guardar como Plantilla"
+                >
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                                Nombre de la plantilla
+                            </label>
+                            <input
+                                type="text"
+                                value={patternNameInput}
+                                onChange={(e) => setPatternNameInput(e.target.value)}
+                                placeholder="Ej: Horario Semana 1"
+                                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && patternNameInput.trim()) {
+                                        saveAsPattern(patternNameInput);
+                                        setShowSavePatternModal(false);
+                                    }
+                                }}
+                            />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setShowSavePatternModal(false)}
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    saveAsPattern(patternNameInput);
+                                    setShowSavePatternModal(false);
+                                }}
+                                disabled={!patternNameInput.trim()}
+                                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Guardar
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
             </div>
         </DndContext>
     );
