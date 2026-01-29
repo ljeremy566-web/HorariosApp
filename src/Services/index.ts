@@ -5,6 +5,4 @@ export { templateService } from './templateService';
 export { patternService, type SavedPattern } from './patternService';
 export { availabilityService, type DayScheduleDB } from './availabilityService';
 export { authService } from './authServices';
-export { eventService, type CalendarEvent } from './eventServices';
 export { resourceService } from './resourceServices';
-export { scheduleService } from './scheduleServices';
