@@ -453,6 +453,93 @@ export function useScheduleActions({
         toast.success(`Plantilla "${pattern.name}" aplicada`);
     }, [setDays, pushToHistory, markDayDirty]);
 
+    // --- BULK ACTION: Asignar turno a múltiples celdas ---
+    const handleBulkAction = useCallback((cellIds: string[], templateId: string) => {
+        const currentDays = daysRef.current;
+        const newDays = [...currentDays];
+        let changesCount = 0;
+
+        // Set para saber qué días ya fueron clonados profundamente
+        const daysToClone = new Set<number>();
+
+        cellIds.forEach(cellId => {
+            // El staffId puede contener guiones (UUID), separar solo por el primer guión
+            const firstDashIdx = cellId.indexOf('-');
+            const dayIdxStr = cellId.substring(0, firstDashIdx);
+            const staffId = cellId.substring(firstDashIdx + 1);
+            const dayIdx = parseInt(dayIdxStr);
+
+            if (newDays[dayIdx].status !== 'OPEN') return; // No editar días cerrados
+
+            // Clonar staffShifts del día si aún no se ha hecho
+            if (!daysToClone.has(dayIdx)) {
+                newDays[dayIdx] = {
+                    ...newDays[dayIdx],
+                    staffShifts: { ...newDays[dayIdx].staffShifts }
+                };
+                daysToClone.add(dayIdx);
+            }
+
+            // Obtener área correcta
+            const staff = staffListRef.current.find(s => s.id === staffId);
+            const areaToSave = selectedAreaIdRef.current !== 'ALL'
+                ? selectedAreaIdRef.current
+                : (staff?.area_ids?.[0] || null);
+
+            // Asignar turno
+            newDays[dayIdx].staffShifts[staffId] = {
+                templateId,
+                areaId: areaToSave
+            };
+
+            markDayDirty(newDays[dayIdx].date);
+            changesCount++;
+        });
+
+        if (changesCount > 0) {
+            pushToHistory();
+            setDays(newDays);
+            setHasUnsavedChanges(true);
+            toast.success(`Turno asignado a ${changesCount} celdas`);
+        }
+    }, [setDays, pushToHistory, markDayDirty]);
+
+    // --- BULK DELETE: Eliminar turnos de múltiples celdas ---
+    const handleBulkDelete = useCallback((cellIds: string[]) => {
+        const currentDays = daysRef.current;
+        const newDays = [...currentDays];
+        let changesCount = 0;
+        const processedDays = new Set<number>();
+
+        cellIds.forEach(cellId => {
+            const firstDashIdx = cellId.indexOf('-');
+            const dayIdxStr = cellId.substring(0, firstDashIdx);
+            const staffId = cellId.substring(firstDashIdx + 1);
+            const dayIdx = parseInt(dayIdxStr);
+
+            if (isNaN(dayIdx) || dayIdx < 0 || dayIdx >= newDays.length) return;
+
+            // Clonar día para inmutabilidad
+            if (!processedDays.has(dayIdx)) {
+                newDays[dayIdx] = { ...newDays[dayIdx], staffShifts: { ...newDays[dayIdx].staffShifts } };
+                processedDays.add(dayIdx);
+                markDayDirty(newDays[dayIdx].date);
+            }
+
+            if (newDays[dayIdx].staffShifts[staffId]) {
+                delete newDays[dayIdx].staffShifts[staffId];
+                changesCount++;
+            }
+        });
+
+        if (changesCount > 0) {
+            pushToHistory();
+            setDays(newDays);
+            setHasUnsavedChanges(true);
+            toast.success(`${changesCount} turnos eliminados`, { icon: '🗑️' });
+        }
+    }, [setDays, pushToHistory, markDayDirty]);
+
     return {
         saving,
         isAutoSaving,
@@ -467,6 +554,8 @@ export function useScheduleActions({
         applyPattern,
         handleSave,
         saveAsPattern,
-        handleGenerateSchedule
+        handleGenerateSchedule,
+        handleBulkAction,
+        handleBulkDelete
     };
 }

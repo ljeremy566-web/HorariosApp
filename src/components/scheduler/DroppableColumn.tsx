@@ -18,11 +18,13 @@ interface DroppableColumnProps {
     onShiftClick: (idx: number, sId: string) => void;
     onRemoveShift: (idx: number, sId: string) => void;
     onDayAction: (action: 'copy_prev' | 'clear' | 'toggle', idx: number) => void;
+    selectedCells?: Set<string>;
+    onCellClick?: (dayIdx: number, staffId: string, shift: unknown, e: React.MouseEvent) => void;
 }
 
 export const DroppableColumn = memo(function DroppableColumn({
     day, dayIdx, staffList, templates, areas, viewMode, selectedAreaId,
-    onShiftClick, onRemoveShift, onDayAction
+    onShiftClick, onRemoveShift, onDayAction, selectedCells, onCellClick
 }: DroppableColumnProps) {
     const { isOver, setNodeRef } = useDroppable({ id: `day-${day.date}`, data: { dayIdx, day } });
 
@@ -115,19 +117,35 @@ export const DroppableColumn = memo(function DroppableColumn({
             <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
                 {!isClosed ? (
                     visibleAssignments.length > 0 ? (
-                        visibleAssignments.map(({ staffId, staff, template, staffArea, shiftData }: any) => (
-                            <DraggableAssignedShift
-                                key={staffId}
-                                staff={staff}
-                                template={template}
-                                staffArea={staffArea}
-                                dayIdx={dayIdx}
-                                viewMode={viewMode}
-                                shiftData={shiftData}
-                                onShiftClick={onShiftClick}
-                                onRemoveShift={onRemoveShift}
-                            />
-                        ))
+                        visibleAssignments.map(({ staffId, staff, template, staffArea, shiftData }: any) => {
+                            const cellId = `${dayIdx}-${staffId}`;
+                            const isSelected = selectedCells?.has(cellId) ?? false;
+
+                            return (
+                                <div
+                                    key={staffId}
+                                    className={`
+                                        relative transition-all duration-200 rounded-lg
+                                        ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 z-10 shadow-md transform scale-[1.02]' : ''}
+                                    `}
+                                >
+                                    <DraggableAssignedShift
+                                        staff={staff}
+                                        template={template}
+                                        staffArea={staffArea}
+                                        dayIdx={dayIdx}
+                                        viewMode={viewMode}
+                                        shiftData={shiftData}
+                                        onShiftClick={onShiftClick}
+                                        onRemoveShift={onRemoveShift}
+                                        onCellClick={onCellClick}
+                                    />
+                                    {isSelected && (
+                                        <div className="absolute inset-0 bg-blue-500/10 rounded-lg pointer-events-none" />
+                                    )}
+                                </div>
+                            );
+                        })
                     ) : (
                         // Estado Vacío Inteligente
                         viewMode === 'edit' && (

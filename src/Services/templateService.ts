@@ -12,7 +12,8 @@ export const templateService = {
         const { data, error } = await supabase
             .from('shift_templates')
             .select('*')
-            .order('created_at');
+            .order('position', { ascending: true })
+            .order('created_at', { ascending: true });
 
         if (error) throw error;
         return data || [];
@@ -36,6 +37,7 @@ export const templateService = {
      * Crear una nueva plantilla
      */
     create: async (template: Omit<ShiftTemplate, 'id' | 'created_at'>): Promise<ShiftTemplate> => {
+        // Asignar posición al final (opcional, requeriría contar primero, o dejar null si DB lo maneja)
         const { data, error } = await supabase
             .from('shift_templates')
             .insert([template])
@@ -71,5 +73,20 @@ export const templateService = {
             .eq('id', id);
 
         if (error) throw error;
+    },
+
+    /**
+     * Actualizar el orden de las plantillas
+     */
+    reorder: async (items: { id: string; position: number }[]): Promise<void> => {
+        // Actualizamos en paralelo (son pocos registros)
+        const promises = items.map(item =>
+            supabase
+                .from('shift_templates')
+                .update({ position: item.position })
+                .eq('id', item.id)
+        );
+
+        await Promise.all(promises);
     }
 };

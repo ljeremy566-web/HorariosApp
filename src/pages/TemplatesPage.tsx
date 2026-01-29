@@ -5,6 +5,7 @@ import { Layers, Plus, Trash2, Loader2, Clock } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Modal } from '../components/Modal';
 import type { ShiftTemplate, TimeRange } from '../types';
+import { templateService } from '../Services';
 
 // Importamos el esquema de Zod
 import { shiftTemplateSchema } from '../schemas/templateSchema';
@@ -49,16 +50,12 @@ export default function TemplatesPage() {
 
     const loadTemplates = async () => {
         setLoading(true);
-        const { data, error } = await supabase
-            .from('shift_templates')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (error) {
+        try {
+            const data = await templateService.getAll();
+            setTemplates(data || []);
+        } catch (error) {
             toast.error('Error cargando turnos');
             console.error(error);
-        } else {
-            setTemplates(data || []);
         }
         setLoading(false);
     };

@@ -13,6 +13,7 @@ interface DraggableAssignedShiftProps {
     shiftData?: ShiftAssignment;
     onShiftClick: (idx: number, sId: string) => void;
     onRemoveShift: (idx: number, sId: string) => void;
+    onCellClick?: (dayIdx: number, staffId: string, shift: unknown, e: React.MouseEvent) => void;
 }
 
 // Función helper para convertir hora 24h a formato 12h AM/PM
@@ -48,7 +49,7 @@ function getBreakTimeRange(ranges: { start: string; end: string }[]): string | n
 
 // --- COMPONENTE DRAGGABLE (TURNO ASIGNADO) - Google Material Card Style ---
 export function DraggableAssignedShift({
-    staff, template, staffArea, dayIdx, viewMode, shiftData, onShiftClick, onRemoveShift
+    staff, template, staffArea, dayIdx, viewMode, shiftData, onShiftClick, onRemoveShift, onCellClick
 }: DraggableAssignedShiftProps) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: `assigned-${dayIdx}-${staff.id}`,
@@ -73,17 +74,36 @@ export function DraggableAssignedShift({
     const startTime = template.schedule_config?.[0]?.start;
     const endTime = template.schedule_config?.[template.schedule_config.length - 1]?.end;
 
+    // Handler personalizado para permitir selección con Shift sin interferir con drag
+    const handlePointerDown = (e: React.PointerEvent) => {
+        // Si hay Shift/Ctrl/Cmd, NO iniciar drag, dejar que onClick maneje la selección
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+            e.stopPropagation();
+            return;
+        }
+        // Si no hay tecla especial, dejar que los listeners del drag funcionen normalmente
+        listeners?.onPointerDown?.(e as any);
+    };
+
     return (
         <div
             ref={setNodeRef}
             style={style}
-            {...listeners}
             {...attributes}
+            onPointerDown={handlePointerDown}
             role="button"
             tabIndex={viewMode === 'edit' ? 0 : -1}
             aria-label={`Turno de ${staff.full_name}, ${template?.name || 'turno'}, ${startTime} a ${endTime}`}
             aria-roledescription="turno arrastrable"
-            onClick={() => viewMode === 'edit' && onShiftClick(dayIdx, staff.id)}
+            onClick={(e) => {
+                if (viewMode !== 'edit') return;
+                // Si hay onCellClick (para selección), usarlo. Sino, usar onShiftClick
+                if (onCellClick) {
+                    onCellClick(dayIdx, staff.id, shiftData, e);
+                } else {
+                    onShiftClick(dayIdx, staff.id);
+                }
+            }}
             onKeyDown={(e) => {
                 if (viewMode !== 'edit') return;
                 if (e.key === 'Enter' || e.key === ' ') {

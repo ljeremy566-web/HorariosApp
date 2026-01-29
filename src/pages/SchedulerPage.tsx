@@ -1,18 +1,24 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     DndContext,
     DragOverlay,
     PointerSensor,
     useSensor,
     useSensors,
+    closestCenter,
     type DragStartEvent,
     type DragEndEvent,
 } from '@dnd-kit/core';
 import {
+    SortableContext,
+    horizontalListSortingStrategy,
+    arrayMove,
+} from '@dnd-kit/sortable';
+import {
     Lock, Unlock, Save, Loader2,
     User, ChevronLeft, ChevronRight,
-    BookmarkPlus, DownloadCloud, Eraser, Palette, Sparkles, Clock, Check,
-    Undo2, Redo2, Share2
+    BookmarkPlus, DownloadCloud, Eraser, Palette, Sparkles, Clock,
+    Undo2, Redo2, Share2, X, CheckCheck
 } from 'lucide-react';
 import { format, getDaysInMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -20,8 +26,9 @@ import { toPng } from 'html-to-image';
 import download from 'downloadjs';
 import toast from 'react-hot-toast';
 
-import { AREA_COLORS, SHIFT_COLORS, getAreaColor } from '../constants/colors';
+import { AREA_COLORS, getAreaColor } from '../constants/colors';
 import type { Area } from '../types';
+import { templateService } from '../Services';
 
 // Components
 import { ConfirmModal } from '../components/common/ConfirmModal';
@@ -30,7 +37,7 @@ import { DraggableStaff } from '../components/scheduler/DraggableStaff';
 import { DroppableColumn } from '../components/scheduler/DroppableColumn';
 import { PatternModal } from '../components/scheduler/PatternModal';
 import { GeneratorModal } from '../components/scheduler/GeneratorModal';
-
+import { SortableTemplateButton } from '../components/scheduler/SortableTemplateButton';
 
 // Hooks
 import { useSchedulerData } from '../hooks/useSchedulerData';
@@ -61,6 +68,7 @@ export default function SchedulerPage() {
 
     // Local UI State
     const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [selectedAreaId, setSelectedAreaId] = useState<string>('ALL');
     const [showPatternModal, setShowPatternModal] = useState(false);
     const [showGenerator, setShowGenerator] = useState(false);
@@ -79,6 +87,60 @@ export default function SchedulerPage() {
     const [showSavePatternModal, setShowSavePatternModal] = useState(false);
     const [patternNameInput, setPatternNameInput] = useState('');
 
+    // Estado para selección múltiple (bulk selection)
+    const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+
+    // Estado para orden personalizado de templates (para atajos 1-9)
+    const [templateOrder, setTemplateOrder] = useState<string[]>([]);
+
+    // Sincronizar orden de templates cuando cambian
+    useEffect(() => {
+        if (templates.length === 0) return;
+        // El backend devuelve templates ordenados por position, así que confiamos en ese orden
+        setTemplateOrder(templates.map(t => t.id));
+    }, [templates]);
+
+    // Templates en orden personalizado
+    const orderedTemplates = useMemo(() => {
+        if (templateOrder.length === 0) return templates;
+
+        const templateMap = new Map(templates.map(t => [t.id, t]));
+        const ordered = templateOrder
+            .map(id => templateMap.get(id))
+            .filter((t): t is typeof templates[0] => !!t);
+
+        // Fallback para templates nuevos
+        if (ordered.length < templates.length) {
+            const addedIds = new Set(ordered.map(t => t.id));
+            const missing = templates.filter(t => !addedIds.has(t.id));
+            return [...ordered, ...missing];
+        }
+        return ordered;
+    }, [templates, templateOrder]);
+
+    // Handler para reordenar templates
+    const handleTemplateReorder = useCallback(async (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (over && active.id !== over.id) {
+            let newOrder: string[] = [];
+            setTemplateOrder(prev => {
+                const oldIndex = prev.indexOf(String(active.id));
+                const newIndex = prev.indexOf(String(over.id));
+                newOrder = arrayMove(prev, oldIndex, newIndex);
+                return newOrder;
+            });
+
+            // Persistir cambios
+            try {
+                const updates = newOrder.map((id, index) => ({ id, position: index }));
+                await templateService.reorder(updates);
+            } catch (error) {
+                console.error('Error saving order', error);
+                toast.error('No se pudo guardar el orden');
+            }
+        }
+    }, []);
+
     // Actions hook
     const {
         saving,
@@ -94,23 +156,18 @@ export default function SchedulerPage() {
         applyPattern,
         handleSave,
         saveAsPattern,
-        handleGenerateSchedule
+        handleGenerateSchedule,
+        handleBulkAction,
+        handleBulkDelete
     } = useScheduleActions({
         days, setDays, templates, staffList, areas, selectedAreaId, activeTemplateId, pushToHistory, clearHistory
     });
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+    const templateSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
     const filteredStaff = useMemo(() =>
         selectedAreaId === 'ALL' ? staffList : staffList.filter(s => s.area_ids && s.area_ids.includes(selectedAreaId)),
         [selectedAreaId, staffList]);
-
-    // Calculate staff shift counts (logic preserved from original)
-    const staffShiftCounts = useMemo(() => days.reduce((acc, day) => {
-        Object.keys(day.staffShifts).forEach(staffId => {
-            acc[staffId] = (acc[staffId] || 0) + 1;
-        });
-        return acc;
-    }, {} as Record<string, number>), [days]);
 
     // Wrappers for actions requiring confirmation or specific UI handling within the page
     // Wrappers for actions requiring confirmation or specific UI handling within the page
@@ -190,6 +247,94 @@ export default function SchedulerPage() {
     const toggleTemplateSelection = useCallback((templateId: string) => {
         setActiveTemplateId(prev => prev === templateId ? null : templateId);
     }, []);
+
+    // Handler para Shift+Click en celdas (selección múltiple)
+    const handleCellClick = useCallback((dayIdx: number, staffId: string, _currentShift: unknown, e: React.MouseEvent) => {
+        e.stopPropagation(); // Evitar propagación del evento
+
+        const cellId = `${dayIdx}-${staffId}`;
+
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+            // Modo selección: toggle la celda en el set
+            setSelectedCells(prev => {
+                const newSet = new Set(prev);
+                if (newSet.has(cellId)) {
+                    newSet.delete(cellId);
+                } else {
+                    newSet.add(cellId);
+                }
+                return newSet;
+            });
+            return; // 🛑 RETURN: No ejecutar cambio de turno
+        }
+
+        // Si no hay tecla especial, limpiar selección y ejecutar acción normal
+        if (selectedCells.size > 0) {
+            setSelectedCells(new Set());
+        }
+        onShiftClick(dayIdx, staffId);
+    }, [selectedCells, onShiftClick]);
+
+    // Aplicar turno masivo a celdas seleccionadas
+    const handleBulkAssign = useCallback(() => {
+        if (!activeTemplateId) {
+            toast.error('Selecciona un turno (pincel) primero');
+            return;
+        }
+
+        handleBulkAction(Array.from(selectedCells), activeTemplateId);
+        setSelectedCells(new Set()); // Limpiar selección
+    }, [activeTemplateId, selectedCells, handleBulkAction]);
+
+    // 🎹 MODO PIANO: Atajos de teclado para asignación rápida
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignorar si el usuario está escribiendo en un input
+            if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+            if (viewMode !== 'edit') return;
+
+            // ESC: Cancelar selección o soltar pincel
+            if (e.key === 'Escape') {
+                if (selectedCells.size > 0) setSelectedCells(new Set());
+                else setActiveTemplateId(null);
+                return;
+            }
+
+            // SUPR/BACKSPACE: Borrar turnos seleccionados
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedCells.size > 0) {
+                    handleBulkDelete(Array.from(selectedCells));
+                    setSelectedCells(new Set());
+                }
+                return;
+            }
+
+            // NÚMEROS 1-9: Asignación Rápida (usa orderedTemplates)
+            if (/^[1-9]$/.test(e.key)) {
+                const index = parseInt(e.key) - 1;
+                if (index < orderedTemplates.length) {
+                    const template = orderedTemplates[index];
+
+                    if (selectedCells.size > 0) {
+                        // Si hay celdas seleccionadas -> ASIGNAR A TODOS
+                        handleBulkAction(Array.from(selectedCells), template.id);
+                        setSelectedCells(new Set());
+                    } else {
+                        // Si no hay selección -> CAMBIAR PINCEL
+                        setActiveTemplateId(template.id);
+                        toast.success(`Pincel: ${template.name}`, {
+                            icon: '🎨',
+                            duration: 1000,
+                            position: 'bottom-center'
+                        });
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [viewMode, selectedCells, orderedTemplates, handleBulkAction, handleBulkDelete]);
 
     // Exportar como imagen
     const handleExportImage = useCallback(async () => {
@@ -456,9 +601,23 @@ export default function SchedulerPage() {
                     </div>
                 </header>
 
-                {/* === BARRA DE TURNOS (PINCELES) === */}
+                {/* === BARRA DE TURNOS (PINCELES) - ARRASTRABLES === */}
                 {viewMode === 'edit' && (
-                    <div className="bg-white border-b border-slate-200 px-5 py-3 flex items-center gap-3 overflow-x-auto">
+                    <div className="bg-white border-b border-slate-200 px-4 py-1.5 flex items-center gap-3 overflow-x-auto transition-all">
+                        {/* Botón para abrir sidebar si está cerrado */}
+                        {!isSidebarOpen && (
+                            <>
+                                <button
+                                    onClick={() => setIsSidebarOpen(true)}
+                                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors flex items-center gap-1.5"
+                                    title="Mostrar personal"
+                                >
+                                    <User size={14} />
+                                    <ChevronRight size={14} />
+                                </button>
+                                <div className="w-px h-4 bg-slate-200"></div>
+                            </>
+                        )}
                         <span className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5 flex-shrink-0">
                             <Palette size={14} />
                             Turnos
@@ -466,28 +625,26 @@ export default function SchedulerPage() {
 
                         <div className="w-px h-5 bg-slate-200"></div>
 
-                        {templates.map(t => {
-                            const c = SHIFT_COLORS[t.color] || SHIFT_COLORS.blue;
-                            const isActive = activeTemplateId === t.id;
-                            return (
-                                <button
-                                    key={t.id}
-                                    onClick={() => toggleTemplateSelection(t.id)}
-                                    className={`
-                                        flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-all flex-shrink-0
-                                        ${isActive
-                                            ? `${c.bg} ${c.text} ring-2 ring-offset-1 ${c.accent.replace('bg-', 'ring-')} scale-105`
-                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                        }
-                                    `}
-                                    title={isActive ? 'Clic para deseleccionar' : 'Clic para seleccionar'}
-                                >
-                                    <span className={`w-2.5 h-2.5 rounded-full ${c.accent}`}></span>
-                                    {t.name}
-                                    {isActive && <Check size={12} strokeWidth={3} />}
-                                </button>
-                            );
-                        })}
+                        {/* DndContext para reordenar templates */}
+                        <DndContext
+                            sensors={templateSensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={handleTemplateReorder}
+                        >
+                            <SortableContext items={templateOrder} strategy={horizontalListSortingStrategy}>
+                                <div className="flex items-center gap-2">
+                                    {orderedTemplates.map((t, index) => (
+                                        <SortableTemplateButton
+                                            key={t.id}
+                                            template={t}
+                                            index={index}
+                                            isActive={activeTemplateId === t.id}
+                                            onToggle={toggleTemplateSelection}
+                                        />
+                                    ))}
+                                </div>
+                            </SortableContext>
+                        </DndContext>
 
                         {templates.length === 0 && (
                             <span className="text-xs text-orange-500 flex items-center gap-1">
@@ -515,16 +672,25 @@ export default function SchedulerPage() {
 
                     {/* Sidebar - Personal */}
                     {viewMode === 'edit' && (
-                        <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
-                            <div className="p-4 border-b border-slate-100">
-                                <h2 className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                    <User size={16} className="text-slate-400" />
-                                    Personal
-                                </h2>
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                    {filteredStaff.length} {filteredStaff.length === 1 ? 'persona' : 'personas'}
-                                    {selectedAreaId === 'ALL' && areas.length > 0 && ' • Agrupados por área'}
-                                </p>
+                        <div className={`${isSidebarOpen ? 'w-64 border-r' : 'w-0 border-none'} bg-white border-slate-200 flex flex-col transition-all duration-300 ease-in-out relative overflow-hidden`}>
+                            <div className="p-4 border-b border-slate-100 flex justify-between items-start min-w-[16rem]">
+                                <div>
+                                    <h2 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                                        <User size={16} className="text-slate-400" />
+                                        Personal
+                                    </h2>
+                                    <p className="text-[11px] text-slate-400 mt-1">
+                                        {filteredStaff.length} {filteredStaff.length === 1 ? 'persona' : 'personas'}
+                                        {selectedAreaId === 'ALL' && areas.length > 0 && ' • Agrupados por área'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setIsSidebarOpen(false)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors"
+                                    title="Ocultar panel"
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar">
                                 {selectedAreaId === 'ALL' ? (
@@ -565,7 +731,7 @@ export default function SchedulerPage() {
                                                     </div>
                                                     <div className="py-1">
                                                         {noAreaStaff.map(staff => (
-                                                            <DraggableStaff key={staff.id} staff={staff} areas={areas} shiftCount={staffShiftCounts[staff.id] || 0} />
+                                                            <DraggableStaff key={staff.id} staff={staff} areas={areas} />
                                                         ))}
                                                     </div>
                                                 </div>
@@ -576,7 +742,7 @@ export default function SchedulerPage() {
                                     // MODO LISTA
                                     <div className="py-2">
                                         {filteredStaff.map(staff => (
-                                            <DraggableStaff key={staff.id} staff={staff} areas={areas} shiftCount={staffShiftCounts[staff.id] || 0} />
+                                            <DraggableStaff key={staff.id} staff={staff} areas={areas} />
                                         ))}
                                         {filteredStaff.length === 0 && (
                                             <div className="text-center py-8 text-slate-400">
@@ -612,6 +778,8 @@ export default function SchedulerPage() {
                                             onShiftClick={onShiftClick}
                                             onRemoveShift={removeShift}
                                             onDayAction={handleDayAction}
+                                            selectedCells={selectedCells}
+                                            onCellClick={handleCellClick}
                                         />
                                     </div>
                                 );
@@ -750,6 +918,39 @@ export default function SchedulerPage() {
                         </div>
                     </div>
                 </Modal>
+
+                {/* Bulk Selection Floating Action Button */}
+                {selectedCells.size > 0 && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-4 animate-in slide-in-from-bottom-4">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-bold">{selectedCells.size} seleccionados</span>
+                            <span className="text-[10px] text-slate-400">
+                                {activeTemplateId
+                                    ? `Listos para asignar: ${templates.find(t => t.id === activeTemplateId)?.name}`
+                                    : 'Selecciona un turno arriba para asignar'
+                                }
+                            </span>
+                        </div>
+
+                        <div className="h-8 w-px bg-slate-700"></div>
+
+                        <button
+                            onClick={handleBulkAssign}
+                            disabled={!activeTemplateId}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                            <CheckCheck size={16} />
+                            Aplicar
+                        </button>
+
+                        <button
+                            onClick={() => setSelectedCells(new Set())}
+                            className="p-1.5 hover:bg-slate-800 rounded-full text-slate-400 transition-colors"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                )}
             </div>
         </DndContext>
     );

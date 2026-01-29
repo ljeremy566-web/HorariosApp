@@ -86,4 +86,5 @@ export interface ShiftTemplate {
     color: string;
     schedule_config: TimeRange[];
     created_at?: string;
+    position?: number;
 }
