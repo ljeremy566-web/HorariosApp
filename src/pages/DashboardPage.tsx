@@ -24,6 +24,19 @@ interface StaffStatus {
     shiftTime?: string;
 }
 
+// Función helper consistente con el Scheduler
+function formatTo12Hour(time: string): string {
+    const [hours, minutes] = time.split(':').map(Number);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 || 12;
+
+    if (minutes === 0) {
+        return `${hour12}${period}`;
+    }
+    return `${hour12}:${minutes.toString().padStart(2, '0')}${period}`;
+}
+
+
 export default function DashboardPage() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -92,7 +105,9 @@ export default function DashboardPage() {
                             const startMin = startH * 60 + startM;
                             const endMin = endH * 60 + endM;
 
-                            shiftTime = `${r.start} - ${r.end}`;
+                            shiftTime = `${formatTo12Hour(r.start)} - ${formatTo12Hour(r.end)}`;
+
+
 
                             if (currentTime >= startMin && currentTime <= endMin) {
                                 isActive = true;
@@ -271,7 +286,10 @@ export default function DashboardPage() {
                                         </div>
                                         <div>
                                             <p className="text-sm text-slate-700 font-medium">{s.person.full_name}</p>
-                                            <p className="text-[10px] text-slate-400">{s.shiftTime}</p>
+                                            <div className="flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 w-fit mt-0.5">
+                                                <Clock size={10} className="text-slate-500" />
+                                                {s.shiftTime}
+                                            </div>
                                         </div>
                                     </div>
                                 ))
@@ -321,7 +339,10 @@ export default function DashboardPage() {
                                         </div>
                                         <div>
                                             <p className="text-sm text-slate-500">{s.person.full_name}</p>
-                                            <p className="text-[10px] text-slate-400">{s.shiftTime}</p>
+                                            <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100 w-fit mt-0.5">
+                                                <Clock size={10} className="text-slate-300" />
+                                                {s.shiftTime}
+                                            </div>
                                         </div>
                                     </div>
                                 ))

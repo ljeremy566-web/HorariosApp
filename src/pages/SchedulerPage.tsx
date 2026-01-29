@@ -18,7 +18,7 @@ import {
     Lock, Unlock, Save, Loader2,
     User, ChevronLeft, ChevronRight,
     BookmarkPlus, DownloadCloud, Eraser, Palette, Sparkles, Clock,
-    Undo2, Redo2, Share2, X, CheckCheck
+    Undo2, Redo2, Share2, X, CheckCheck, ZoomIn, ZoomOut
 } from 'lucide-react';
 import { format, getDaysInMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -92,6 +92,9 @@ export default function SchedulerPage() {
 
     // Estado para orden personalizado de templates (para atajos 1-9)
     const [templateOrder, setTemplateOrder] = useState<string[]>([]);
+
+    // Estado para el nivel de zoom
+    const [zoomLevel, setZoomLevel] = useState<number>(1);
 
     // Sincronizar orden de templates cuando cambian
     useEffect(() => {
@@ -320,13 +323,18 @@ export default function SchedulerPage() {
                         handleBulkAction(Array.from(selectedCells), template.id);
                         setSelectedCells(new Set());
                     } else {
-                        // Si no hay selección -> CAMBIAR PINCEL
-                        setActiveTemplateId(template.id);
-                        toast.success(`Pincel: ${template.name}`, {
-                            icon: '🎨',
-                            duration: 1000,
-                            position: 'bottom-center'
-                        });
+                        // Si no hay selección -> TOGGLE PINCEL
+                        if (activeTemplateId === template.id) {
+                            setActiveTemplateId(null);
+                            toast('Pincel desactivado', { icon: '⚪', duration: 1000, position: 'bottom-center' });
+                        } else {
+                            setActiveTemplateId(template.id);
+                            toast.success(`Pincel: ${template.name}`, {
+                                icon: '🎨',
+                                duration: 1000,
+                                position: 'bottom-center'
+                            });
+                        }
                     }
                 }
             }
@@ -334,52 +342,101 @@ export default function SchedulerPage() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [viewMode, selectedCells, orderedTemplates, handleBulkAction, handleBulkDelete]);
+    }, [viewMode, selectedCells, orderedTemplates, handleBulkAction, handleBulkDelete, activeTemplateId]);
 
-    // Exportar como imagen
+    // Exportar como imagen - Solución Definitiva
     const handleExportImage = useCallback(async () => {
         if (!gridContainerRef.current) return;
 
-        const loadingId = toast.loading('Generando imagen del horario...');
-        try {
-            const container = gridContainerRef.current;
-            // Obtener el elemento hijo que contiene todo el contenido del grid
-            const gridContent = container.firstElementChild as HTMLElement;
+        const loadingId = toast.loading('Generando imagen de alta calidad...');
 
-            if (!gridContent) {
-                toast.error('No se encontró contenido para exportar', { id: loadingId });
-                return;
+        try {
+            // ESTRATEGIA: CLONADO MANUAL MEJORADO
+            // 1. Clonar el elemento real
+            const originalElement = gridContainerRef.current;
+            const clone = originalElement.cloneNode(true) as HTMLElement;
+
+            // 2. Configurar contenedor temporal
+            clone.style.position = 'fixed';
+            clone.style.top = '0';
+            clone.style.left = '0';
+            clone.style.width = `${originalElement.scrollWidth}px`;
+            clone.style.height = 'auto';
+            clone.style.zIndex = '-9999'; // Detrás de todo
+            clone.style.overflow = 'visible';
+            clone.style.backgroundColor = '#ffffff'; // Fondo blanco explícito
+            clone.style.transform = 'translateZ(0)'; // Forzar GPU layer
+
+            // Añadir al body
+            document.body.appendChild(clone);
+
+            // 3. Procesar el clon (Expandir todo)
+            const columns = clone.querySelectorAll('[data-export-column="true"]');
+            columns.forEach((col: any) => {
+                col.style.height = 'auto';
+                col.style.flex = 'none';
+                col.style.minHeight = '0';
+            });
+
+            const scrollables = clone.querySelectorAll('[data-export-scroll="true"]');
+            scrollables.forEach((scroll: any) => {
+                scroll.style.overflow = 'visible';
+                scroll.style.height = 'auto';
+                scroll.style.maxHeight = 'none';
+                scroll.style.display = 'block';
+            });
+
+            // Mostrar el título oculto ANTES de medir
+            const header = clone.querySelector('#export-only-header') as HTMLElement;
+            if (header) {
+                header.style.display = 'block';
+                header.style.marginBottom = '20px';
+                header.style.textAlign = 'center';
             }
 
-            // Capturar el tamaño completo del contenido (incluyendo scroll)
-            const fullWidth = container.scrollWidth;
-            const fullHeight = container.scrollHeight;
+            // Dar tiempo al navegador para renderizar el clon expandido
+            await new Promise(resolve => setTimeout(resolve, 800));
 
-            const dataUrl = await toPng(gridContent, {
+            // 4. Medir altura FINAL real del clon expandido
+            // En lugar de calcular partes, medimos el contenedor entero que ahora debería haber crecido
+            // para alojar todo el contenido expandido.
+            // Agregamos un padding generoso (200px) al final por si acaso
+            const finalHeight = clone.scrollHeight + 300;
+
+            console.log('Export height measured:', clone.scrollHeight, 'Final:', finalHeight);
+
+            // 5. Generar imagen
+            const dataUrl = await toPng(clone, {
+                width: originalElement.scrollWidth,
+                height: finalHeight,
+                quality: 1.0,
+                pixelRatio: 2.5, // Bajamos un poco para evitar crashes por memoria si es muy grande
                 backgroundColor: '#ffffff',
-                pixelRatio: 2,
-                cacheBust: true,
-                width: fullWidth,
-                height: fullHeight,
                 style: {
-                    // Asegurar que se renderice todo el contenido
                     transform: 'none',
-                    overflow: 'visible',
+                    height: `${finalHeight}px`, // Forzar altura en estilo también
                 }
             });
 
-            const areaName = selectedAreaId === 'ALL'
-                ? 'General'
-                : areas.find(a => a.id === selectedAreaId)?.name || 'Area';
+            // 6. Limpieza
+            document.body.removeChild(clone);
+
+            const areaName = selectedAreaId === 'ALL' ? 'General' : areas.find(a => a.id === selectedAreaId)?.name || 'Area';
             const dateStr = format(currentDate, 'yyyy-MM-dd');
 
             download(dataUrl, `Horario_${areaName}_${dateStr}.png`);
-            toast.success('Imagen descargada correctamente', { id: loadingId });
+            toast.success('Imagen exportada correctamente', { id: loadingId });
+
         } catch (error) {
             console.error('Error exporting image:', error);
-            toast.error('Error al exportar la imagen', { id: loadingId });
+            toast.error('Error al generar la imagen', { id: loadingId });
+            // Limpieza de emergencia
+            const clones = document.querySelectorAll('[data-export-column="true"]');
+            clones.forEach(c => {
+                if (c.parentElement === document.body) document.body.removeChild(c);
+            });
         }
-    }, [gridContainerRef, selectedAreaId, areas, currentDate]);
+    }, [gridContainerRef, selectedAreaId, areas, currentDate, periodLabel]);
 
     if (loading) return (
         <div className="h-full flex items-center justify-center bg-white">
@@ -757,8 +814,53 @@ export default function SchedulerPage() {
                     )}
 
                     {/* Grid de Calendario */}
-                    <div ref={gridContainerRef} className="flex-1 overflow-auto bg-white">
-                        <div className="flex h-full min-w-max divide-x divide-slate-100">
+                    <div ref={gridContainerRef} className="flex-1 overflow-auto bg-white relative">
+
+                        {/* CONTROLES DE ZOOM FLOTANTES */}
+                        <div className="fixed bottom-5 right-5 z-40 inline-flex shadow-xl bg-white/90 backdrop-blur-sm rounded-full border border-slate-200 p-1.5 gap-1 w-fit animate-in fade-in slide-in-from-bottom-4">
+                            <button
+                                onClick={() => setZoomLevel(prev => Math.max(0.5, prev - 0.1))}
+                                className="p-2 text-slate-600 hover:bg-slate-100 hover:text-blue-600 rounded-full transition-colors"
+                                title="Reducir zoom"
+                            >
+                                <ZoomOut size={20} />
+                            </button>
+                            <div className="w-px bg-slate-200 my-1"></div>
+                            <button
+                                onClick={() => setZoomLevel(1)}
+                                className="px-3 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-full transition-colors min-w-[3rem] text-center"
+                                title="Restablecer zoom"
+                            >
+                                {Math.round(zoomLevel * 100)}%
+                            </button>
+                            <div className="w-px bg-slate-200 my-1"></div>
+                            <button
+                                onClick={() => setZoomLevel(prev => Math.min(1.5, prev + 0.1))}
+                                className="p-2 text-slate-600 hover:bg-slate-100 hover:text-blue-600 rounded-full transition-colors"
+                                title="Aumentar zoom"
+                            >
+                                <ZoomIn size={20} />
+                            </button>
+                        </div>
+
+                        {/* Este encabezado está oculto (hidden) en la app, pero saldrá en la imagen */}
+                        <div id="export-only-header" className="hidden text-center p-4 border-b-2 border-slate-800 mb-6 bg-white">
+                            <h1 className="text-3xl font-bold text-slate-900 uppercase tracking-tight">
+                                Horario de Personal - {selectedAreaId === 'ALL' ? 'Vista General' : areas.find(a => a.id === selectedAreaId)?.name}
+                            </h1>
+                            <div className="flex justify-center items-center gap-4 mt-2 text-slate-600 font-medium text-lg">
+                                <span>📅 {periodLabel}</span>
+                                <span>•</span>
+                                <span>Generado: {format(new Date(), 'dd/MM/yyyy HH:mm')}</span>
+                            </div>
+                        </div>
+
+                        <div
+                            className="flex h-full min-w-max divide-x divide-slate-100 origin-top-left transition-transform duration-200 ease-out"
+                            style={{
+                                zoom: zoomLevel // Usamos zoom nativo para mejor manejo de scroll en Chrome/Edge
+                            }}
+                        >
                             {days.map((day, idx) => {
                                 const isToday = day.date === format(new Date(), 'yyyy-MM-dd');
                                 return (

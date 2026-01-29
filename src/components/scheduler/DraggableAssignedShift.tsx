@@ -160,8 +160,8 @@ export function DraggableAssignedShift({
 
                     {/* Hora Minimalista */}
                     {startTime && (
-                        <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
-                            <Clock size={10} className="text-slate-300" />
+                        <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                            <Clock size={10} className="text-slate-500" />
                             <span>{formatTo12Hour(startTime)}-{endTime ? formatTo12Hour(endTime) : ''}</span>
                         </div>
                     )}
@@ -193,8 +193,8 @@ export function DraggableAssignedShift({
                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-50">
                         {/* Indicador de descanso */}
                         {breakDuration && (
-                            <span className="flex items-center gap-1 text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
-                                <Coffee size={9} />
+                            <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold border border-indigo-100">
+                                <Coffee size={10} />
                                 <span>Descanso: {breakDuration}</span>
                             </span>
                         )}

@@ -66,6 +66,7 @@ export const DroppableColumn = memo(function DroppableColumn({
     return (
         <div
             ref={setNodeRef}
+            data-export-column="true"
             className={`
                 min-w-[170px] flex-1 flex flex-col h-full transition-all duration-200
                 ${bgClass} ${borderClass}
@@ -114,7 +115,7 @@ export const DroppableColumn = memo(function DroppableColumn({
             </div>
 
             {/* BODY - LISTA DE TURNOS */}
-            <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
+            <div data-export-scroll="true" className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
                 {!isClosed ? (
                     visibleAssignments.length > 0 ? (
                         visibleAssignments.map(({ staffId, staff, template, staffArea, shiftData }: any) => {
